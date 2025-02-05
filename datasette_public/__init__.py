@@ -126,7 +126,7 @@ def database_actions(datasette, actor, database):
                     "/-/public-database/{}".format(quote_plus(database))
                 ),
                 "label": "Make database {}".format(
-                    "private" if not is_public else "public"
+                    "private" if is_public else "public"
                 ),
                 "description": (
                     "Only allow logged-in users to view this database"
