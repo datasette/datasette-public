@@ -48,17 +48,6 @@ def permission_allowed(datasette, action, actor, resource):
             return True
         if action == "execute-sql" and not actor:
             is_public, allow_sql = await database_privacy_settings(datasette, resource)
-            print(
-                "Check for actor",
-                actor,
-                "is_public",
-                "resource",
-                resource,
-                " - result: is_public",
-                is_public,
-                "allow_sql",
-                allow_sql,
-            )
             if not allow_sql:
                 return allow_sql
         if action not in ("view-table", "view-database"):
