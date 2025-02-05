@@ -9,7 +9,7 @@
 {% block content %}
 <h1>Edit database privacy: <a href="{{ urls.database(database) }}">{{ database }}</a></h1>
 
-<form id="database-privacy-form" action="{{ base_url }}-/public-database/{{ database|quote_plus }}" method="post">
+<form class="core" id="database-privacy-form" action="{{ base_url }}-/public-database/{{ database|quote_plus }}" method="post">
 <p>Database is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
 <p>
     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
