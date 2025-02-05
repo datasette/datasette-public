@@ -1,6 +1,6 @@
-from datasette import hookimpl, Forbidden, Response, NotFound
+from datasette import hookimpl, Forbidden, Response, NotFound, Permission
 from urllib.parse import quote_plus, unquote_plus
-from typing import Optional, Tuple
+from typing import Tuple
 
 CREATE_TABLES_SQL = """
 create table if not exists public_tables (
@@ -24,6 +24,20 @@ def startup(datasette):
         await db.execute_write_script(CREATE_TABLES_SQL)
 
     return inner
+
+
+@hookimpl
+def register_permissions():
+    return [
+        Permission(
+            name="datasette-public",
+            abbr=None,
+            description="Make tables and databases public/private",
+            takes_database=True,
+            takes_resource=False,
+            default=False,
+        ),
+    ]
 
 
 @hookimpl
@@ -86,7 +100,7 @@ async def database_privacy_settings(datasette, database_name) -> Tuple[bool, boo
 def table_actions(datasette, actor, database, table):
     async def inner():
         if not await datasette.permission_allowed(
-            actor, "datasette-public", resource=database, default=False
+            actor, "datasette-public", resource=database
         ):
             return []
         noun = "table"
@@ -116,7 +130,7 @@ def table_actions(datasette, actor, database, table):
 def database_actions(datasette, actor, database):
     async def inner():
         if not await datasette.permission_allowed(
-            actor, "datasette-public", resource=database, default=False
+            actor, "datasette-public", resource=database
         ):
             return []
         is_public, _ = await database_privacy_settings(datasette, database)
@@ -146,7 +160,7 @@ def view_actions(datasette, actor, database, view):
 
 async def check_permissions(datasette, request, database):
     if not await datasette.permission_allowed(
-        request.actor, "datasette-public", resource=database, default=False
+        request.actor, "datasette-public", resource=database
     ):
         raise Forbidden("Permission denied for changing table privacy")
 
