@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block content %}
-<h1>Edit {{ noun }} privacy: <a href="{{ base_url }}{{ database|quote_plus }}/{{ table|quote_plus }}">{{ database }}/{{ table }}</a></h1>
+<h1>Edit {{ noun }} privacy: <a href="{{ urls.table(database, table) }}">{{ database }}/{{ table }}</a></h1>
 
 <form action="{{ base_url }}-/public-table/{{ database|quote_plus }}/{{ table|quote_plus }}" method="post">
 <p>{{ noun|title }} is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
