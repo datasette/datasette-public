@@ -20,10 +20,16 @@ This plugin can only be used with Datasette 1.0a+ and requires Datasette to be r
 ```bash
 datasette --internal internal.db data.db
 ```
+To grant `datasette-public` permission to the root user run the following:
+```bash
+datasette --internal internal.db data.db --root -s permissions.datasette-public.id root
+```
 
-A UI allows users with the `datasette-public` permission to toggle both tables and databases between public and private.
+New database and table action menu items allow users with the `datasette-public` permission to toggle both tables and databases between public and private.
 
-TODO: Make this true: Installing this plugin also causes `allow-sql` permission checks to fall back to checking if the user has access to the entire database. This is to avoid users with access to a single public table being able to access data from other tables using the `?_where=` query string parameter.
+For databases, users can also select if the ability to execute arbitrary SQL should be exposed to the public.
+
+If a table is public but the database is private, users will not we able to use the `?_where=` parameter on that table.
 
 ## Development
 

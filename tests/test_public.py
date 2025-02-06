@@ -209,3 +209,46 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
         assert fragment2 not in response2.text
     else:
         assert fragment2 in response2.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "instance_is_public,should_show_database_actions",
+    (
+        (True, True),
+        (False, False),
+    ),
+)
+async def test_database_actions(
+    tmpdir, instance_is_public, should_show_database_actions
+):
+    # Database cannot be toggled if the instance they are in is public
+    internal_path = str(tmpdir / "internal.db")
+    data_path = str(tmpdir / "data.db")
+    conn2 = sqlite3.connect(data_path)
+    conn2.execute("create table t1 (id int)")
+    ds = Datasette(
+        [data_path],
+        internal=internal_path,
+        config=instance_is_public and {"allow": {"id": "root"} or {}},
+    )
+    await ds.invoke_startup()
+    response = await ds.client.get(
+        "/data", cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})}
+    )
+    fragment = 'a href="/-/public-database/data">Make database public'
+    if should_show_database_actions:
+        assert fragment in response.text
+    else:
+        assert fragment not in response.text
+
+    # And fetch the control page
+    response2 = await ds.client.get(
+        "/-/public-database/data",
+        cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})},
+    )
+    fragment2 = "cannot change the visibility"
+    if should_show_database_actions:
+        assert fragment2 not in response2.text
+    else:
+        assert fragment2 in response2.text

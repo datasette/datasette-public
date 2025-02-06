@@ -126,7 +126,13 @@ def database_actions(datasette, actor, database):
         if not await datasette.permission_allowed(
             actor, "datasette-public", resource=database
         ):
-            return []
+            return
+        instance_visible, instance_private = await datasette.check_visibility(
+            actor, permissions=["view-instance"]
+        )
+        if instance_visible and not instance_private:
+            return
+
         is_public, _ = await database_privacy_settings(datasette, database)
         return [
             {
@@ -242,6 +248,11 @@ async def change_database_privacy(request, datasette):
 
     is_public, allow_sql = await database_privacy_settings(datasette, database_name)
 
+    instance_visible, instance_private = await datasette.check_visibility(
+        request.actor, permissions=["view-instance"]
+    )
+    instance_is_public = instance_visible and not instance_private
+
     return Response.html(
         await datasette.render_template(
             "public_database_change_privacy.html",
@@ -249,6 +260,7 @@ async def change_database_privacy(request, datasette):
                 "database": database_name,
                 "is_private": not is_public,
                 "allow_sql": allow_sql,
+                "instance_is_public": instance_is_public,
             },
             request=request,
         )
