@@ -5,7 +5,7 @@
 [![Tests](https://github.com/datasette/datasette-public/workflows/Test/badge.svg)](https://github.com/datasette/datasette-public/actions?query=workflow%3ATest)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/datasette/datasette-public/blob/main/LICENSE)
 
-Make specific Datasette tables visible to the public
+Make selected Datasette databases and tables visible to the public
 
 ## Installation
 

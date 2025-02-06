@@ -14,7 +14,7 @@ def get_long_description():
 
 setup(
     name="datasette-public",
-    description="Make specific Datasette tables visible to the public",
+    description="Make selected Datasette databases and tables visible to the public",
     long_description=get_long_description(),
     long_description_content_type="text/markdown",
     author="Simon Willison",
