@@ -1,9 +1,9 @@
 # datasette-public
 
 [![PyPI](https://img.shields.io/pypi/v/datasette-public.svg)](https://pypi.org/project/datasette-public/)
-[![Changelog](https://img.shields.io/github/v/release/simonw/datasette-public?include_prereleases&label=changelog)](https://github.com/simonw/datasette-public/releases)
-[![Tests](https://github.com/simonw/datasette-public/workflows/Test/badge.svg)](https://github.com/simonw/datasette-public/actions?query=workflow%3ATest)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/simonw/datasette-public/blob/main/LICENSE)
+[![Changelog](https://img.shields.io/github/v/release/datasette/datasette-public?include_prereleases&label=changelog)](https://github.com/datasette/datasette-public/releases)
+[![Tests](https://github.com/datasette/datasette-public/workflows/Test/badge.svg)](https://github.com/datasette/datasette-public/actions?query=workflow%3ATest)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/datasette/datasette-public/blob/main/LICENSE)
 
 Make specific Datasette tables visible to the public
 
@@ -21,6 +21,7 @@ This plugin can only be used with Datasette 1.0a+ and requires Datasette to be r
 datasette --internal internal.db data.db
 ```
 To grant `datasette-public` permission to the root user run the following:
+
 ```bash
 datasette --internal internal.db data.db --root -s permissions.datasette-public.id root
 ```

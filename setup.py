@@ -18,11 +18,11 @@ setup(
     long_description=get_long_description(),
     long_description_content_type="text/markdown",
     author="Simon Willison",
-    url="https://github.com/simonw/datasette-public",
+    url="https://github.com/datasette/datasette-public",
     project_urls={
-        "Issues": "https://github.com/simonw/datasette-public/issues",
-        "CI": "https://github.com/simonw/datasette-public/actions",
-        "Changelog": "https://github.com/simonw/datasette-public/releases",
+        "Issues": "https://github.com/datasette/datasette-public/issues",
+        "CI": "https://github.com/datasette/datasette-public/actions",
+        "Changelog": "https://github.com/datasette/datasette-public/releases",
     },
     license="Apache License, Version 2.0",
     classifiers=[
