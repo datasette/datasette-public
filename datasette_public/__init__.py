@@ -47,9 +47,9 @@ def permission_allowed(datasette, action, actor, resource):
         if actor and actor.get("id") == "root" and action == "datasette-public":
             return True
         if action == "execute-sql" and not actor:
-            is_public, allow_sql = await database_privacy_settings(datasette, resource)
-            if not allow_sql:
-                return allow_sql
+            # We now have an opinion on execute-sql for anonymous users
+            _, allow_sql = await database_privacy_settings(datasette, resource)
+            return allow_sql
         if action not in ("view-table", "view-database"):
             return None
         if action == "view-table" and await table_is_public(
