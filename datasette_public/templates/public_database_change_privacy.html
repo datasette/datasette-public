@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Change privacy for {{ database }}{% endblock %}
+
+{% block crumbs %}
+{{ crumbs.nav(request=request, database=database) }}
+{% endblock %}
+
+{% block content %}
+<h1>Edit database privacy: <a href="{{ urls.database(database) }}">{{ database }}</a></h1>
+
+{% if instance_is_public %}
+    <p>This Datasette instance is currently public, so you cannot change the visibility of this database.</p>
+{% else %}
+
+    <form class="core" id="database-privacy-form" action="{{ base_url }}-/public-database/{{ database|quote_plus }}" method="post">
+    <p>Database is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
+    <p>
+        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+        <p> <!-- radio buttons for make-public / make-private action-->
+          <input type="radio" name="action" id="make-public" value="make-public" {% if not is_private %}checked{% endif %}>
+          <label for="make-public">Database is public</label> - anyone can access it
+        </p>
+        <p>
+          <input type="radio" name="action" id="make-private" value="make-private" {% if is_private %}checked{% endif %}>
+          <label for="make-private">Database is private</label> - only authorized users can access it
+        </p>
+        <p id="allow-sql-wrapper">
+          <input type="checkbox" name="allow_sql" id="allow_sql" {% if allow_sql %}checked{% endif %}>
+          <label for="allow_sql">Allow public users to run read-only SQL queries</label>
+        </p>
+        <input type="submit" value="Update database privacy">
+    </p>
+    </form>
+
+    <script>
+    function showHideSqlWrapper() {
+        var allowSqlWrapper = document.getElementById('allow-sql-wrapper');
+        var form = document.querySelector('#database-privacy-form');
+        if (form.action.value === 'make-public') {
+            allowSqlWrapper.style.display = 'block';
+        } else {
+            allowSqlWrapper.style.display = 'none';
+        }
+    }
+    document.querySelectorAll('input[type=radio]').forEach(function(radio) {
+        radio.addEventListener('change', showHideSqlWrapper);
+    });
+    showHideSqlWrapper();
+    </script>
+
+{% endif %}
+
+{% endblock %}

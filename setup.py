@@ -32,7 +32,7 @@ setup(
     version=VERSION,
     packages=["datasette_public"],
     entry_points={"datasette": ["public = datasette_public"]},
-    install_requires=["datasette>=0.63"],
+    install_requires=["datasette>=1.0a1"],
     extras_require={"test": ["pytest", "pytest-asyncio"]},
     package_data={"datasette_public": ["templates/*"]},
     python_requires=">=3.7",
