@@ -181,7 +181,6 @@ def _get_public_tables(db_path):
 async def test_table_actions(tmpdir, database_is_private, should_show_table_actions):
     # Tables cannot be toggled if the database they are in is public
     internal_path = str(tmpdir / "internal.db")
-    conn = sqlite3.connect(internal_path)
     data_path = str(tmpdir / "data.db")
     conn2 = sqlite3.connect(data_path)
     conn2.execute("create table t1 (id int)")
