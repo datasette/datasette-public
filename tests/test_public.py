@@ -168,3 +168,45 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
 def _get_public_tables(db_path):
     conn = sqlite3.connect(db_path)
     return [row[0] for row in conn.execute("select table_name from public_tables")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "database_is_private,should_show_table_actions",
+    (
+        (True, True),
+        (False, False),
+    ),
+)
+async def test_table_actions(tmpdir, database_is_private, should_show_table_actions):
+    # Tables cannot be toggled if the database they are in is public
+    internal_path = str(tmpdir / "internal.db")
+    conn = sqlite3.connect(internal_path)
+    data_path = str(tmpdir / "data.db")
+    conn2 = sqlite3.connect(data_path)
+    conn2.execute("create table t1 (id int)")
+    ds = Datasette(
+        [data_path],
+        internal=internal_path,
+        config=database_is_private and {"allow": {"id": "root"} or {}},
+    )
+    await ds.invoke_startup()
+    response = await ds.client.get(
+        "/data/t1", cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})}
+    )
+    fragment = 'a href="/-/public-table/data/t1">Make table public'
+    if should_show_table_actions:
+        assert fragment in response.text
+    else:
+        assert fragment not in response.text
+
+    # And fetch the control page
+    response2 = await ds.client.get(
+        "/-/public-table/data/t1",
+        cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})},
+    )
+    fragment2 = "cannot change the visibility"
+    if should_show_table_actions:
+        assert fragment2 not in response2.text
+    else:
+        assert fragment2 in response2.text
