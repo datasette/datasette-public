@@ -306,7 +306,7 @@ async def test_database_actions(
     await ds.invoke_startup()
     cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
     response = await ds.client.get("/data", cookies=cookies)
-    fragment = 'a href="/-/public-database/data">Make database public'
+    fragment = 'a href="/-/public-database/data">Change database visibility'
     if should_show_database_actions:
         assert fragment in response.text
     else:

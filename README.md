@@ -32,6 +32,8 @@ For databases, users can also select if the ability to execute arbitrary SQL sho
 
 If a table is public but the database is private, users will not we able to use the `?_where=` parameter on that table.
 
+The interfaces for managing the visibility of databases and tables include an audit log of changes that have been made to their public status.
+
 ## Internals
 
 This plugin uses three tables in the internal database:

@@ -147,9 +147,7 @@ def database_actions(datasette, actor, database):
                 "href": datasette.urls.path(
                     "/-/public-database/{}".format(quote_plus(database))
                 ),
-                "label": "Make database {}".format(
-                    "private" if is_public else "public"
-                ),
+                "label": "Change database visibility",
                 "description": (
                     "Only allow logged-in users to view this database"
                     if is_public
@@ -205,6 +203,32 @@ async def change_table_privacy(request, datasette):
         raise NotFound("{} not found".format(noun))
 
     permission_db = datasette.get_internal_database()
+    next_id = request.args.get("next", None)
+    limit = 10
+
+    where = ["database_name = :database and table_name = :table"]
+    params = {"database": database_name, "table": table}
+    if next_id:
+        where.append("id < :next_id")
+        params["next_id"] = next_id
+
+    audit_log = (
+        await permission_db.execute(
+            f"""
+        select *, id as next_page
+        from public_audit_log
+        where {" and ".join(where)}
+        order by id desc
+        limit {limit + 1}
+        """,
+            params,
+        )
+    ).rows
+
+    next_page = None
+    if len(audit_log) > limit:
+        next_page = audit_log[limit - 1]["next_page"]
+        audit_log = audit_log[:limit]
 
     if request.method == "POST":
         form_data = await request.post_vars()
@@ -266,6 +290,8 @@ async def change_table_privacy(request, datasette):
                 "is_private": is_private,
                 "noun": noun.lower(),
                 "database_is_public": database_is_public,
+                "audit_log": audit_log,
+                "next_page": next_page,
             },
             request=request,
         )
@@ -360,6 +386,33 @@ async def change_database_privacy(request, datasette):
     )
     instance_is_public = instance_visible and not instance_private
 
+    next_id = request.args.get("next", None)
+    limit = 10
+
+    where = ["database_name = :database"]
+    params = {"database": database_name}
+    if next_id:
+        where.append("id < :next_id")
+        params["next_id"] = next_id
+
+    audit_log = (
+        await permission_db.execute(
+            f"""
+        select *, id as next_page
+        from public_audit_log
+        where {" and ".join(where)}
+        order by id desc
+        limit {limit + 1}
+        """,
+            params,
+        )
+    ).rows
+
+    next_page = None
+    if len(audit_log) > limit:
+        next_page = audit_log[limit - 1]["next_page"]
+        audit_log = audit_log[:limit]
+
     return Response.html(
         await datasette.render_template(
             "public_database_change_privacy.html",
@@ -368,6 +421,8 @@ async def change_database_privacy(request, datasette):
                 "is_private": not is_public,
                 "allow_sql": allow_sql,
                 "instance_is_public": instance_is_public,
+                "audit_log": audit_log,
+                "next_page": next_page,
             },
             request=request,
         )

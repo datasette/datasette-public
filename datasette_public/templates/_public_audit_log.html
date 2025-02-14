@@ -1,0 +1,46 @@
+<style>
+.audit-log {
+    border-collapse: collapse;
+    margin-bottom: 1em;
+}
+.audit-log th, .audit-log td {
+    border: 1px solid #ccc;
+    padding: 0.2em 0.5em;
+}
+.audit-log th {
+    background-color: #f0f0f0;
+}
+</style>
+
+{% if audit_log %}
+<h2>Audit log</h2>
+<table class="audit-log">
+    <thead>
+        <tr>
+            <th>When</th>
+            <th>Who</th>
+            <th>Action</th>
+            <th>Target</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for entry in audit_log %}
+        <tr>
+            <td>{{ entry.timestamp }}</td>
+            <td>{{ entry.operation_by }}</td>
+            <td>
+              {% if entry.operation == 'make_public' %}Made <strong>public</strong>{% endif %}
+              {% if entry.operation == 'make_private' %}Made <strong>private</strong>{% endif %}
+              {% if entry.operation == 'sql_enabled' %}Enabled SQL{% endif %}
+              {% if entry.operation == 'sql_disabled' %}Disabled SQL{% endif %}
+            </td>
+            <td>{% if entry.table_name %}Table: <a href="{{ urls.table(entry.database_name, entry.table_name) }}">{{ entry.table_name }}</a>{% else %}Database{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{% if next_page %}
+<p><a href="{{ request.path }}?next={{ next_page }}">Next page</a></p>
+{% endif %}
