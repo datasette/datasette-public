@@ -19,6 +19,61 @@ async def test_plugin_creates_table(ds):
     table_names = await db.table_names()
     assert "public_tables" in table_names
     assert "public_databases" in table_names
+    assert "public_audit_log" in table_names
+
+
+@pytest.mark.asyncio
+async def test_audit_logs(tmpdir):
+    # Set up test environment
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    ds = Datasette([db_path], internal=internal_path, metadata={"allow": {"id": "*"}})
+    await ds.invoke_startup()
+    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+    csrf = None
+
+    # Helper to get CSRF and make requests
+    async def post_action(path, action, allow_sql=None):
+        nonlocal csrf
+
+        response = await ds.client.get(path, cookies=cookies)
+        if "ds_csrftoken" in response.cookies:
+            csrf = response.cookies["ds_csrftoken"]
+            cookies["ds_csrftoken"] = csrf
+        data = {"action": action, "csrftoken": csrf}
+        if allow_sql is not None:
+            data["allow_sql"] = allow_sql
+        return await ds.client.post(path, cookies=cookies, data=data)
+
+    # Test table privacy changes
+    await post_action("/-/public-table/data/t1", "make-public")
+    await post_action("/-/public-table/data/t1", "make-public")  # Redundant
+    await post_action("/-/public-table/data/t1", "make-private")
+    await post_action("/-/public-table/data/t1", "make-private")  # Redundant
+
+    # Test database privacy changes
+    await post_action("/-/public-database/data", "make-public", allow_sql=True)
+    await post_action(
+        "/-/public-database/data", "make-public", allow_sql=True
+    )  # Redundant
+    await post_action("/-/public-database/data", "make-public", allow_sql=False)
+    await post_action("/-/public-database/data", "make-private")
+    await post_action("/-/public-database/data", "make-private")  # Redundant
+
+    # Each tuple is (actor_id, operation, database_name, table_name)
+    expected_operations = [
+        ("root", "make_public", "data", "t1"),  # Make table public
+        ("root", "make_private", "data", "t1"),  # Make table private
+        ("root", "make_public", "data", None),  # Make database public
+        ("root", "sql_enabled", "data", None),  # With SQL enabled
+        ("root", "sql_disabled", "data", None),  # Toggle SQL off
+        ("root", "make_private", "data", None),  # Make database private
+    ]
+
+    logs = _get_audit_logs(internal_path)
+    assert logs == expected_operations
 
 
 @pytest.mark.asyncio
@@ -149,6 +204,10 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
     assert response3.status_code == 302
     assert response3.headers["location"] == "/data/t1"
     assert _get_public_tables(internal_path) == ["t1"]
+    logs = _get_audit_logs(internal_path)
+    assert len(logs) == 1
+    assert logs[0] == ("root", "make_public", "data", "t1")
+
     # And toggle it private again
     response4 = await ds.client.get("/-/public-table/data/t1", cookies=cookies)
     html2 = response4.text
@@ -163,11 +222,24 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
     assert response5.status_code == 302
     assert response5.headers["location"] == "/data/t1"
     assert _get_public_tables(internal_path) == []
+    logs = _get_audit_logs(internal_path)
+    assert len(logs) == 2
+    assert logs[0] == ("root", "make_public", "data", "t1")
+    assert logs[1] == ("root", "make_private", "data", "t1")
 
 
 def _get_public_tables(db_path):
     conn = sqlite3.connect(db_path)
     return [row[0] for row in conn.execute("select table_name from public_tables")]
+
+
+def _get_audit_logs(db_path):
+    conn = sqlite3.connect(db_path)
+    return list(
+        conn.execute(
+            "select operation_by, operation, database_name, table_name from public_audit_log order by id"
+        ).fetchall()
+    )
 
 
 @pytest.mark.asyncio
@@ -190,9 +262,8 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
         config=database_is_private and {"allow": {"id": "root"} or {}},
     )
     await ds.invoke_startup()
-    response = await ds.client.get(
-        "/data/t1", cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})}
-    )
+    cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
+    response = await ds.client.get("/data/t1", cookies=cookies)
     fragment = 'a href="/-/public-table/data/t1">Make table public'
     if should_show_table_actions:
         assert fragment in response.text
@@ -202,7 +273,7 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
     # And fetch the control page
     response2 = await ds.client.get(
         "/-/public-table/data/t1",
-        cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})},
+        cookies=cookies,
     )
     fragment2 = "cannot change the visibility"
     if should_show_table_actions:
@@ -233,9 +304,8 @@ async def test_database_actions(
         config=instance_is_public and {"allow": {"id": "root"} or {}},
     )
     await ds.invoke_startup()
-    response = await ds.client.get(
-        "/data", cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})}
-    )
+    cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
+    response = await ds.client.get("/data", cookies=cookies)
     fragment = 'a href="/-/public-database/data">Make database public'
     if should_show_database_actions:
         assert fragment in response.text
@@ -245,7 +315,7 @@ async def test_database_actions(
     # And fetch the control page
     response2 = await ds.client.get(
         "/-/public-database/data",
-        cookies={"ds_actor": ds.client.actor_cookie({"id": "root"})},
+        cookies=cookies,
     )
     fragment2 = "cannot change the visibility"
     if should_show_database_actions:

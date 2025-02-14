@@ -12,6 +12,14 @@ create table if not exists public_databases (
     database_name text primary key,
     allow_sql integer default 0
 );
+create table if not exists public_audit_log (
+    id integer primary key,
+    timestamp text default (datetime('now')),
+    operation_by text,
+    operation text check (operation in ('make_public', 'make_private', 'sql_enabled', 'sql_disabled')),
+    database_name text,
+    table_name text
+);
 """.strip()
 
 
@@ -165,6 +173,23 @@ async def check_permissions(datasette, request, database):
         raise Forbidden("Permission denied for changing table privacy")
 
 
+async def add_audit_log(db, actor_id, operation, database_name, table_name=None):
+    sql = f"""
+        insert into public_audit_log (
+            operation_by, operation, database_name, table_name
+        ) values (
+            :actor_id, :operation, :database_name,
+            {':table_name' if table_name else 'null'}
+        )"""
+    params = {
+        "actor_id": actor_id,
+        "operation": operation,
+        "database_name": database_name,
+        "table_name": table_name,
+    }
+    await db.execute_write(sql, params)
+
+
 async def change_table_privacy(request, datasette):
     table = unquote_plus(request.url_vars["table"])
     database_name = request.url_vars["database"]
@@ -184,19 +209,45 @@ async def change_table_privacy(request, datasette):
     if request.method == "POST":
         form_data = await request.post_vars()
         action = form_data.get("action")
+        was_public = await table_is_public(datasette, database_name, table)
+        msg_type = datasette.INFO
         if action == "make-public":
-            msg = "public"
-            await permission_db.execute_write(
-                "insert or ignore into public_tables (database_name, table_name) values (?, ?)",
-                [database_name, table],
-            )
+            if not was_public:
+                await permission_db.execute_write(
+                    "insert or ignore into public_tables (database_name, table_name) values (?, ?)",
+                    [database_name, table],
+                )
+                await add_audit_log(
+                    permission_db,
+                    request.actor.get("id"),
+                    "make_public",
+                    database_name,
+                    table,
+                )
+                msg = "now public"
+            else:
+                msg = "already public"
+                msg_type = datasette.WARNING
         elif action == "make-private":
-            msg = "private"
-            await permission_db.execute_write(
-                "delete from public_tables where database_name = ? and table_name = ?",
-                [database_name, table],
-            )
-        datasette.add_message(request, "{} '{}' is now {}".format(noun, table, msg))
+            if was_public:
+                await permission_db.execute_write(
+                    "delete from public_tables where database_name = ? and table_name = ?",
+                    [database_name, table],
+                )
+                await add_audit_log(
+                    permission_db,
+                    request.actor.get("id"),
+                    "make_private",
+                    database_name,
+                    table,
+                )
+                msg = "now private"
+            else:
+                msg = "already private"
+                msg_type = datasette.WARNING
+        datasette.add_message(
+            request, "{} '{}' is {}".format(noun, table, msg), msg_type
+        )
         return Response.redirect(datasette.urls.table(database_name, table))
 
     is_private = not await table_is_public(datasette, database_name, table)
@@ -230,19 +281,75 @@ async def change_database_privacy(request, datasette):
         form_data = await request.post_vars()
         allow_sql = bool(form_data.get("allow_sql"))
         action = form_data.get("action")
+        current_settings = await database_privacy_settings(datasette, database_name)
+        was_public, had_sql = current_settings
+        msg_type = datasette.INFO
+        msg = None
+
         if action == "make-public":
-            msg = "public"
-            await permission_db.execute_write(
-                "insert or replace into public_databases (database_name, allow_sql) values (?, ?)",
-                (database_name, allow_sql),
-            )
+            settings_changed = False
+            if not was_public:
+                settings_changed = True
+                await permission_db.execute_write(
+                    "insert or replace into public_databases (database_name, allow_sql) values (?, ?)",
+                    (database_name, allow_sql),
+                )
+                await add_audit_log(
+                    permission_db, request.actor.get("id"), "make_public", database_name
+                )
+                if allow_sql:
+                    await add_audit_log(
+                        permission_db,
+                        request.actor.get("id"),
+                        "sql_enabled",
+                        database_name,
+                    )
+                msg = "now public"
+            else:
+                # Already public, but SQL setting might have changed
+                if allow_sql != had_sql:
+                    await permission_db.execute_write(
+                        "update public_databases set allow_sql = ? where database_name = ?",
+                        (allow_sql, database_name),
+                    )
+                    await add_audit_log(
+                        permission_db,
+                        request.actor.get("id"),
+                        "sql_enabled" if allow_sql else "sql_disabled",
+                        database_name,
+                    )
+                    msg = "public (execute SQL is now {})".format(
+                        "enabled" if allow_sql else "disabled"
+                    )
+                else:
+                    msg = "already public"
+                    msg_type = datasette.WARNING
         elif action == "make-private":
-            msg = "private"
-            await permission_db.execute_write(
-                "delete from public_databases where database_name = ?", [database_name]
-            )
+            if was_public:
+                if had_sql:
+                    await add_audit_log(
+                        permission_db,
+                        request.actor.get("id"),
+                        "sql_disabled",
+                        database_name,
+                    )
+                await permission_db.execute_write(
+                    "delete from public_databases where database_name = ?",
+                    [database_name],
+                )
+                await add_audit_log(
+                    permission_db,
+                    request.actor.get("id"),
+                    "make_private",
+                    database_name,
+                )
+                msg = "now private"
+            else:
+                msg = "already private"
+                msg_type = datasette.WARNING
+
         datasette.add_message(
-            request, "Database '{}' is now {}".format(database_name, msg)
+            request, "Database '{}' is {}".format(database_name, msg), msg_type
         )
         return Response.redirect(datasette.urls.database(database_name))
 

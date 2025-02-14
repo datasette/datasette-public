@@ -32,6 +32,14 @@ For databases, users can also select if the ability to execute arbitrary SQL sho
 
 If a table is public but the database is private, users will not we able to use the `?_where=` parameter on that table.
 
+## Internals
+
+This plugin uses three tables in the internal database:
+
+- `public_databases` - stores the public status of databases and if execute SQL is enabled
+- `public_tables` - stores the public status of tables
+- `public_audit_log` - stores the history of changes to the public status of databases and tables
+
 ## Development
 
 To set up this plugin locally, first checkout the code. Then create a new virtual environment:
