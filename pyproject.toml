@@ -1,6 +1,6 @@
 [project]
 name = "datasette-public"
-version = "0.3a0"
+version = "0.3a1"
 description = "Make selected Datasette databases and tables visible to the public"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
