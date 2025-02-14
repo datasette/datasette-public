@@ -44,6 +44,17 @@ Now install the dependencies and test dependencies:
 ```bash
 pip install -e '.[test]'
 ```
+In local development it's useful to run Datasette with everything made private by default:
+```bash
+datasette data.db \
+  --internal internal.db \
+  -s allow.id root \
+  -s permissions.datasette-public.id root \
+  --root \
+  --secret fixed \
+  --reload
+```
+
 To run the tests:
 ```bash
 pytest
