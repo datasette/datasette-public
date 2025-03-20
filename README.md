@@ -23,7 +23,8 @@ datasette --internal internal.db data.db
 To grant `datasette-public` permission to the root user run the following:
 
 ```bash
-datasette --internal internal.db data.db --root -s permissions.datasette-public.id root
+datasette --internal internal.db data.db --root \
+  -s permissions.datasette-public.id root
 ```
 
 New database and table action menu items allow users with the `datasette-public` permission to toggle both tables and databases between public and private.
