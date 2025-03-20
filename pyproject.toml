@@ -1,6 +1,6 @@
 [project]
 name = "datasette-public"
-version = "0.3a1"
+version = "0.3a2"
 description = "Make selected Datasette databases and tables visible to the public"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
@@ -21,7 +21,7 @@ Issues = "https://github.com/datasette/datasette-public/issues"
 CI = "https://github.com/datasette/datasette-public/actions"
 
 [project.entry-points.datasette]
-extract = "datasette_public"
+public = "datasette_public"
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-asyncio"]
