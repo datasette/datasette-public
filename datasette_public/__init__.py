@@ -193,7 +193,7 @@ def query_actions(datasette, actor, database, query_name):
         database_visible, database_private = await datasette.check_visibility(
             actor, permissions=[("view-database", database), "view-instance"]
         )
-        if database_visible and not database_private:
+        if (not database_visible) or database_private:
             return
         is_private = not await query_is_public(datasette, database, query_name)
         return [

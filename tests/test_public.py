@@ -368,13 +368,13 @@ async def test_query_actions_ui(tmpdir, user_is_root):
     ds = Datasette(
         [db_path],
         internal=internal_path,
-        metadata={
+        config={
             "databases": {
                 "data": {
                     "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
                 }
             },
-            "allow": {"id": "*"},
+            "permissions": {"datasette-public": {"id": "root"}},
         },
     )
     await ds.invoke_startup()
