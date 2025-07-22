@@ -36,6 +36,13 @@ def startup(datasette):
         if db.is_memory:
             raise ValueError("datasette-public requires a persistent database")
         await db.execute_write_script(CREATE_TABLES_SQL)
+        # Ensure query_name column exists
+        try:
+            await db.execute_write(
+                "alter table public_audit_log add column query_name text"
+            )
+        except Exception:
+            pass
 
     return inner
 

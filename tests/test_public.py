@@ -511,3 +511,53 @@ def _get_query_audit_logs(db_path):
             "select operation_by, operation, database_name, query_name from public_audit_log where query_name is not null order by id"
         ).fetchall()
     )
+
+
+@pytest.mark.asyncio
+async def test_startup_upgrades_audit_log_schema(tmpdir):
+    """
+    Create an internal.db that is missing the `query_name` column on
+    public_audit_log, start Datasette and confirm the column is added.
+    """
+    internal_path = str(tmpdir / "internal.db")
+
+    # Create a pre-existing internal DB without the query_name column
+    conn = sqlite3.connect(internal_path)
+    conn.executescript(
+        """
+        create table public_tables (
+            database_name text,
+            table_name text,
+            primary key (database_name, table_name)
+        );
+        create table public_databases (
+            database_name text primary key,
+            allow_sql integer default 0
+        );
+        create table public_queries (
+            database_name text,
+            query_name text,
+            primary key (database_name, query_name)
+        );
+        -- Missing query_name here on purpose
+        create table public_audit_log (
+            id integer primary key,
+            timestamp text,
+            operation_by text,
+            operation text,
+            database_name text,
+            table_name text
+        );
+        """
+    )
+    conn.close()
+
+    # Start Datasette pointing at that internal DB
+    ds = Datasette([], internal=internal_path)
+    await ds.invoke_startup()
+
+    # Confirm query_name column was added by startup hook
+    db = ds.get_internal_database()
+    pragma = await db.execute("pragma table_info(public_audit_log)")
+    column_names = [row["name"] for row in pragma]
+    assert "query_name" in column_names
