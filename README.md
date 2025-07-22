@@ -5,7 +5,7 @@
 [![Tests](https://github.com/datasette/datasette-public/workflows/Test/badge.svg)](https://github.com/datasette/datasette-public/actions?query=workflow%3ATest)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/datasette/datasette-public/blob/main/LICENSE)
 
-Make selected Datasette databases and tables visible to the public
+Make selected Datasette databases, tables and queries visible to the public
 
 ## Installation
 
@@ -27,21 +27,22 @@ datasette --internal internal.db data.db --root \
   -s permissions.datasette-public.id root
 ```
 
-New database and table action menu items allow users with the `datasette-public` permission to toggle both tables and databases between public and private.
+New database, table and query action menu items allow users with the `datasette-public` permission to toggle databases, tables and queries between public and private.
 
 For databases, users can also select if the ability to execute arbitrary SQL should be exposed to the public.
 
 If a table is public but the database is private, users will not we able to use the `?_where=` parameter on that table.
 
-The interfaces for managing the visibility of databases and tables include an audit log of changes that have been made to their public status.
+The interfaces for managing the visibility of databases, tables and queries include an audit log of changes that have been made to their public status.
 
 ## Internals
 
-This plugin uses three tables in the internal database:
+This plugin uses four tables in the internal database:
 
 - `public_databases` - stores the public status of databases and if execute SQL is enabled
 - `public_tables` - stores the public status of tables
-- `public_audit_log` - stores the history of changes to the public status of databases and tables
+- `public_queries` - stores the public status of queries
+- `public_audit_log` - stores the history of changes to the public status of databases, tables and queries
 
 ## Development
 
