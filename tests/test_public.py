@@ -322,3 +322,192 @@ async def test_database_actions(
         assert fragment2 not in response2.text
     else:
         assert fragment2 in response2.text
+
+
+@pytest.mark.asyncio
+async def test_plugin_creates_query_table(ds):
+    db = ds.get_internal_database()
+    table_names = await db.table_names()
+    assert "public_queries" in table_names
+
+
+@pytest.mark.asyncio
+async def test_query_permission_check(tmpdir):
+    """Test core query permission functionality without UI"""
+    from datasette_public import query_is_public
+
+    internal_path = str(tmpdir / "internal.db")
+    ds = Datasette([], internal=internal_path, metadata={"allow": {"id": "*"}})
+    await ds.invoke_startup()
+
+    # Test query_is_public function
+    assert not await query_is_public(ds, "test_db", "test_query")
+
+    # Make query public
+    internal_db = ds.get_internal_database()
+    await internal_db.execute_write(
+        "insert into public_queries (database_name, query_name) values (?, ?)",
+        ["test_db", "test_query"],
+    )
+
+    # Test query is now public
+    assert await query_is_public(ds, "test_db", "test_query")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_is_root", (True, False))
+async def test_query_actions_ui(tmpdir, user_is_root):
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    # Create the database file
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE dummy (id INTEGER)")
+    conn.close()
+
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        metadata={
+            "databases": {
+                "data": {
+                    "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
+                }
+            },
+            "allow": {"id": "*"},
+        },
+    )
+    await ds.invoke_startup()
+
+    cookies = {
+        "ds_actor": ds.sign({"a": {"id": "root" if user_is_root else "user"}}, "actor")
+    }
+
+    # Test query page shows action menu for root user only
+    response = await ds.client.get("/data/test_query", cookies=cookies)
+    menu_fragment = 'a href="/-/public-query/data/test_query">Make query public'
+
+    if user_is_root:
+        assert menu_fragment in response.text
+    else:
+        assert menu_fragment not in response.text
+
+
+@pytest.mark.asyncio
+async def test_query_privacy_toggle(tmpdir):
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    # Create the database file
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE dummy (id INTEGER)")
+    conn.close()
+
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        metadata={
+            "databases": {
+                "data": {
+                    "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
+                }
+            },
+            "allow": {"id": "*"},
+        },
+    )
+    await ds.invoke_startup()
+
+    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+
+    # Get privacy control page
+    response = await ds.client.get("/-/public-query/data/test_query", cookies=cookies)
+    assert response.status_code == 200
+    assert "Query is currently <strong>private</strong>" in response.text
+
+    # Make query public
+    csrftoken = response.cookies["ds_csrftoken"]
+    cookies["ds_csrftoken"] = csrftoken
+
+    response = await ds.client.post(
+        "/-/public-query/data/test_query",
+        cookies=cookies,
+        data={"action": "make-public", "csrftoken": csrftoken},
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == "/data/test_query"
+
+    # Verify query is now public in database
+    assert _get_public_queries(internal_path) == ["test_query"]
+
+    # Verify audit log
+    logs = _get_query_audit_logs(internal_path)
+    assert len(logs) == 1
+    assert logs[0] == ("root", "make_public", "data", "test_query")
+
+    # Toggle back to private
+    response = await ds.client.get("/-/public-query/data/test_query", cookies=cookies)
+    assert "Query is currently <strong>public</strong>" in response.text
+
+    response = await ds.client.post(
+        "/-/public-query/data/test_query",
+        cookies=cookies,
+        data={"action": "make-private", "csrftoken": csrftoken},
+    )
+    assert response.status_code == 302
+
+    # Verify query is now private
+    assert _get_public_queries(internal_path) == []
+    logs = _get_query_audit_logs(internal_path)
+    assert len(logs) == 2
+    assert logs[1] == ("root", "make_private", "data", "test_query")
+
+
+@pytest.mark.asyncio
+async def test_query_privacy_with_database_privacy(tmpdir):
+    """Test that database privacy affects query action visibility"""
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    # Create the database file
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE dummy (id INTEGER)")
+    conn.close()
+
+    # Make database public
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        metadata={
+            "databases": {
+                "data": {
+                    "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
+                }
+            }
+        },
+    )
+    await ds.invoke_startup()
+
+    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+
+    # Query actions should not appear when database is public
+    response = await ds.client.get("/data/test_query", cookies=cookies)
+    menu_fragment = 'a href="/-/public-query/data/test_query">Make query'
+    assert menu_fragment not in response.text
+
+    # Privacy control page should show warning
+    response = await ds.client.get("/-/public-query/data/test_query", cookies=cookies)
+    assert "cannot change the visibility of this query" in response.text
+
+
+def _get_public_queries(db_path):
+    conn = sqlite3.connect(db_path)
+    return [row[0] for row in conn.execute("select query_name from public_queries")]
+
+
+def _get_query_audit_logs(db_path):
+    conn = sqlite3.connect(db_path)
+    return list(
+        conn.execute(
+            "select operation_by, operation, database_name, query_name from public_audit_log where query_name is not null order by id"
+        ).fetchall()
+    )

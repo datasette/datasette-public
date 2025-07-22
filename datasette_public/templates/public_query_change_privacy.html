@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Change privacy for query {{ query }} in {{ database }}{% endblock %}
+
+{% block crumbs %}
+{{ crumbs.nav(request=request, database=database) }}
+{% endblock %}
+
+{% block content %}
+<h1>Edit query privacy: <a href="{{ urls.query(database, query) }}">{{ database }}/{{ query }}</a></h1>
+
+{% if database_is_public %}
+    <p>The <strong>{{ database }}</strong> database is currently public, so you cannot change the visibility of this query.</p>
+{% else %}
+
+    <form class="core" action="{{ base_url }}-/public-query/{{ database|quote_plus }}/{{ query|quote_plus }}" method="post">
+    <p>Query is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
+    <p>
+        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+        <input type="hidden" name="action" value="{% if is_private %}make-public{% else %}make-private{% endif %}">
+        <input type="submit" value="{% if is_private %}Make public{% else %}Make private{% endif %}">
+    </p>
+    </form>
+{% endif %}
+
+{% include "_public_audit_log.html" %}
+
+{% endblock %}
