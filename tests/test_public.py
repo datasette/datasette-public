@@ -9,6 +9,7 @@ async def ds(tmpdir):
     db_path = str(tmpdir / "data.db")
     internal_path = str(tmpdir / "internal.db")
     ds = Datasette([db_path], internal=internal_path)
+    ds.root_enabled = True
     await ds.invoke_startup()
     return ds
 
@@ -29,7 +30,8 @@ async def test_audit_logs(tmpdir):
     internal_path = str(tmpdir / "internal.db")
     conn = sqlite3.connect(db_path)
     conn.execute("create table t1 (id int)")
-    ds = Datasette([db_path], internal=internal_path, metadata={"allow": {"id": "*"}})
+    ds = Datasette([db_path], internal=internal_path, config={"allow": {"id": "*"}})
+    ds.root_enabled = True
     await ds.invoke_startup()
     cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
     csrf = None
@@ -80,6 +82,7 @@ async def test_audit_logs(tmpdir):
 async def test_error_if_no_internal_database(tmpdir):
     db_path = str(tmpdir / "data.db")
     ds = Datasette(files=[db_path])
+    ds.root_enabled = True
     with pytest.raises(ValueError):
         await ds.invoke_startup()
 
@@ -108,6 +111,7 @@ async def test_public_table(
         config["allow"] = False
 
     ds = Datasette([db_path], internal=internal_path, config=config)
+    ds.root_enabled = True
     await ds.invoke_startup()
 
     if is_view:
@@ -136,6 +140,7 @@ async def test_where_is_denied(tmpdir):
     internal_conn = sqlite3.connect(internal_path)
 
     ds = Datasette([db_path], internal=internal_path, config={"allow": False})
+    ds.root_enabled = True
     await ds.invoke_startup()
 
     conn.execute("create table t1 (id int)")
@@ -166,7 +171,8 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
         conn.execute("create view t1 as select 1")
     else:
         conn.execute("create table t1 (id int)")
-    ds = Datasette([db_path], internal=internal_path, metadata={"allow": {"id": "*"}})
+    ds = Datasette([db_path], internal=internal_path, config={"allow": {"id": "*"}})
+    ds.root_enabled = True
     await ds.invoke_startup()
     # Regular user can see table but not edit privacy
     cookies = {
@@ -256,11 +262,13 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
     data_path = str(tmpdir / "data.db")
     conn2 = sqlite3.connect(data_path)
     conn2.execute("create table t1 (id int)")
+    config = {"allow": {"id": "root"}} if database_is_private else {}
     ds = Datasette(
         [data_path],
         internal=internal_path,
-        config=database_is_private and {"allow": {"id": "root"} or {}},
+        config=config,
     )
+    ds.root_enabled = True
     await ds.invoke_startup()
     cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
     response = await ds.client.get("/data/t1", cookies=cookies)
@@ -298,11 +306,13 @@ async def test_database_actions(
     data_path = str(tmpdir / "data.db")
     conn2 = sqlite3.connect(data_path)
     conn2.execute("create table t1 (id int)")
+    config = {"allow": {"id": "root"}} if instance_is_public else {}
     ds = Datasette(
         [data_path],
         internal=internal_path,
-        config=instance_is_public and {"allow": {"id": "root"} or {}},
+        config=config,
     )
+    ds.root_enabled = True
     await ds.invoke_startup()
     cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
     response = await ds.client.get("/data", cookies=cookies)
@@ -337,7 +347,8 @@ async def test_query_permission_check(tmpdir):
     from datasette_public import query_is_public
 
     internal_path = str(tmpdir / "internal.db")
-    ds = Datasette([], internal=internal_path, metadata={"allow": {"id": "*"}})
+    ds = Datasette([], internal=internal_path, config={"allow": {"id": "*"}})
+    ds.root_enabled = True
     await ds.invoke_startup()
 
     # Test query_is_public function
@@ -369,6 +380,7 @@ async def test_query_actions_ui(tmpdir, user_is_root):
         [db_path],
         internal=internal_path,
         config={
+            "allow": {"id": "*"},
             "databases": {
                 "data": {
                     "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
@@ -377,6 +389,7 @@ async def test_query_actions_ui(tmpdir, user_is_root):
             "permissions": {"datasette-public": {"id": "root"}},
         },
     )
+    ds.root_enabled = True
     await ds.invoke_startup()
 
     cookies = {
@@ -406,7 +419,7 @@ async def test_query_privacy_toggle(tmpdir):
     ds = Datasette(
         [db_path],
         internal=internal_path,
-        metadata={
+        config={
             "databases": {
                 "data": {
                     "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
@@ -415,6 +428,7 @@ async def test_query_privacy_toggle(tmpdir):
             "allow": {"id": "*"},
         },
     )
+    ds.root_enabled = True
     await ds.invoke_startup()
 
     cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
@@ -477,7 +491,7 @@ async def test_query_privacy_with_database_privacy(tmpdir):
     ds = Datasette(
         [db_path],
         internal=internal_path,
-        metadata={
+        config={
             "databases": {
                 "data": {
                     "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
@@ -485,6 +499,7 @@ async def test_query_privacy_with_database_privacy(tmpdir):
             }
         },
     )
+    ds.root_enabled = True
     await ds.invoke_startup()
 
     cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
@@ -554,6 +569,7 @@ async def test_startup_upgrades_audit_log_schema(tmpdir):
 
     # Start Datasette pointing at that internal DB
     ds = Datasette([], internal=internal_path)
+    ds.root_enabled = True
     await ds.invoke_startup()
 
     # Confirm query_name column was added by startup hook

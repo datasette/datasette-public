@@ -4,14 +4,13 @@ version = "0.3a4"
 description = "Make selected Datasette databases and tables visible to the public"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 classifiers=[
     "Framework :: Datasette",
-    "License :: OSI Approved :: Apache Software License"
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "datasette==1.0a19",
+    "datasette>=1.0a21",
 ]
 
 [project.urls]
