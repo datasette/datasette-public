@@ -2,6 +2,7 @@ from datasette.app import Datasette
 import pytest
 import pytest_asyncio
 import sqlite3
+from collections import namedtuple
 
 
 @pytest_asyncio.fixture
@@ -290,23 +291,58 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
         assert fragment2 in response2.text
 
 
+DatabaseActionsTest = namedtuple(
+    "DatabaseActionsTest",
+    (
+        "description",
+        "in_public_databases",
+        "instance_allows_all",
+        "should_show",
+    ),
+)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "instance_is_public,should_show_database_actions",
+    DatabaseActionsTest._fields,
     (
-        (True, True),
-        (False, False),
+        DatabaseActionsTest(
+            description="Database in public_databases -> show action (can make private)",
+            in_public_databases=True,
+            instance_allows_all=True,
+            should_show=True,
+        ),
+        DatabaseActionsTest(
+            description="Database not in public_databases, instance allows all -> don't show",
+            in_public_databases=False,
+            instance_allows_all=True,
+            should_show=False,
+        ),
     ),
 )
 async def test_database_actions(
-    tmpdir, instance_is_public, should_show_database_actions
+    tmpdir,
+    description,
+    in_public_databases,
+    instance_allows_all,
+    should_show,
 ):
-    # Database cannot be toggled if the instance they are in is public
+    """
+    Test database actions behavior:
+    - Show when database IS in public_databases (can make it private)
+    - Don't show when database is visible via other means (like instance-level permissions)
+    """
     internal_path = str(tmpdir / "internal.db")
+    internal_conn = sqlite3.connect(internal_path)
     data_path = str(tmpdir / "data.db")
     conn2 = sqlite3.connect(data_path)
     conn2.execute("create table t1 (id int)")
-    config = {"allow": {"id": "root"}} if instance_is_public else {}
+
+    config = {}
+    if instance_allows_all:
+        # Make instance/databases visible via instance-level permission
+        config["allow"] = {"id": "root"}
+
     ds = Datasette(
         [data_path],
         internal=internal_path,
@@ -314,24 +350,23 @@ async def test_database_actions(
     )
     ds.root_enabled = True
     await ds.invoke_startup()
+
+    # Add database to public_databases if needed
+    if in_public_databases:
+        with internal_conn:
+            internal_conn.execute(
+                "insert into public_databases (database_name) values (?)",
+                ["data"],
+            )
+
     cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
     response = await ds.client.get("/data", cookies=cookies)
     fragment = 'a href="/-/public-database/data">Change database visibility'
-    if should_show_database_actions:
+
+    if should_show:
         assert fragment in response.text
     else:
         assert fragment not in response.text
-
-    # And fetch the control page
-    response2 = await ds.client.get(
-        "/-/public-database/data",
-        cookies=cookies,
-    )
-    fragment2 = "cannot change the visibility"
-    if should_show_database_actions:
-        assert fragment2 not in response2.text
-    else:
-        assert fragment2 in response2.text
 
 
 @pytest.mark.asyncio

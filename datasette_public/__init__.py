@@ -152,19 +152,13 @@ def table_actions(datasette, actor, database, table, request):
         ):
             return
 
-        # Check database visibility first, then instance
+        # Check database visibility
         db_resource = datasette.resource_for_action(
             "view-database", parent=database, child=None
         )
         database_visible, database_private = await datasette.check_visibility(
             actor, "view-database", db_resource
         )
-
-        # If database not visible, check instance
-        if not database_visible:
-            database_visible, database_private = await datasette.check_visibility(
-                actor, "view-instance", None
-            )
 
         # Only show action in private contexts
         if database_visible and not database_private:
@@ -205,16 +199,22 @@ def database_actions(datasette, actor, database, request):
         ):
             return
 
-        # Check instance visibility
-        instance_visible, instance_private = await datasette.check_visibility(
-            actor, "view-instance", None
+        is_public, _ = await database_privacy_settings(datasette, database)
+
+        # Check if database is visible
+        db_resource = datasette.resource_for_action(
+            "view-database", parent=database, child=None
+        )
+        database_visible, _ = await datasette.check_visibility(
+            actor, "view-database", db_resource
         )
 
-        # Only show action in private contexts
-        if instance_visible and not instance_private:
+        # Only show action if:
+        # - Database is in public_databases (so it can be made private), OR
+        # - Database is NOT visible (so it can be made public)
+        # Don't show if visible but not explicitly public (visible via other permission)
+        if not is_public and database_visible:
             return
-
-        is_public, _ = await database_privacy_settings(datasette, database)
         return [
             {
                 "href": datasette.urls.path(
@@ -250,19 +250,13 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
         ):
             return
 
-        # Check database visibility first, then instance
+        # Check database visibility
         db_resource = datasette.resource_for_action(
             "view-database", parent=database, child=None
         )
         database_visible, database_private = await datasette.check_visibility(
             actor, "view-database", db_resource
         )
-
-        # If database not visible, check instance
-        if not database_visible:
-            database_visible, database_private = await datasette.check_visibility(
-                actor, "view-instance", None
-            )
 
         # Only show action if visible AND private
         if (not database_visible) or (not database_private):
@@ -406,19 +400,13 @@ async def change_table_privacy(request, datasette):
 
     is_private = not await table_is_public(datasette, database_name, table)
 
-    # Check database visibility first, then instance
+    # Check database visibility
     db_resource = datasette.resource_for_action(
         "view-database", parent=database_name, child=None
     )
     database_visible, database_private = await datasette.check_visibility(
         request.actor, "view-database", db_resource
     )
-
-    # If database not visible, check instance
-    if not database_visible:
-        database_visible, database_private = await datasette.check_visibility(
-            request.actor, "view-instance", None
-        )
 
     database_is_public = database_visible and not database_private
 
@@ -522,11 +510,8 @@ async def change_database_privacy(request, datasette):
 
     is_public, allow_sql = await database_privacy_settings(datasette, database_name)
 
-    # Check instance visibility
-    instance_visible, instance_private = await datasette.check_visibility(
-        request.actor, "view-instance", None
-    )
-    instance_is_public = instance_visible and not instance_private
+    # No instance-level permissions in new Datasette alpha
+    instance_is_public = False
 
     next_id = request.args.get("next", None)
     limit = 10
@@ -648,19 +633,13 @@ async def change_query_privacy(request, datasette):
 
     is_private = not await query_is_public(datasette, database_name, query)
 
-    # Check database visibility first, then instance
+    # Check database visibility
     db_resource = datasette.resource_for_action(
         "view-database", parent=database_name, child=None
     )
     database_visible, database_private = await datasette.check_visibility(
         request.actor, "view-database", db_resource
     )
-
-    # If database not visible, check instance
-    if not database_visible:
-        database_visible, database_private = await datasette.check_visibility(
-            request.actor, "view-instance", None
-        )
 
     database_is_public = database_visible and not database_private
 
