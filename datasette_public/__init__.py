@@ -36,7 +36,7 @@ def startup(datasette):
     async def inner():
         db = datasette.get_internal_database()
         if db.is_memory:
-            raise ValueError("datasette-public requires a persistent database")
+            raise ValueError("datasette-public requires a persistent internal database")
         await db.execute_write_script(CREATE_TABLES_SQL)
         # Ensure query_name column exists
         try:
