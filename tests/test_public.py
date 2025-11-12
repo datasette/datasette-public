@@ -402,7 +402,11 @@ async def test_query_permission_check(tmpdir):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_is_root", (True, False))
-async def test_query_actions_ui(tmpdir, user_is_root):
+@pytest.mark.parametrize(
+    "path,should_have_option",
+    (("/data/test_query", True), ("/data/-/query?sql=select+1", False)),
+)
+async def test_query_actions_ui(tmpdir, user_is_root, path, should_have_option):
     db_path = str(tmpdir / "data.db")
     internal_path = str(tmpdir / "internal.db")
 
@@ -432,10 +436,11 @@ async def test_query_actions_ui(tmpdir, user_is_root):
     }
 
     # Test query page shows action menu for root user only
-    response = await ds.client.get("/data/test_query", cookies=cookies)
+    response = await ds.client.get(path, cookies=cookies)
+    assert response.status_code == 200
     menu_fragment = 'a href="/-/public-query/data/test_query">Make query public'
 
-    if user_is_root:
+    if user_is_root and should_have_option:
         assert menu_fragment in response.text
     else:
         assert menu_fragment not in response.text

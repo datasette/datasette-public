@@ -240,6 +240,8 @@ def view_actions(datasette, actor, database, view, request):
 @hookimpl
 def query_actions(datasette, actor, database, query_name, request, sql, params):
     async def inner():
+        if not query_name:
+            return  # Canned queries only
         resource = datasette.resource_for_action(
             "datasette-public", parent=database, child=None
         )
