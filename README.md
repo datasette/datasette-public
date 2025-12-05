@@ -46,28 +46,18 @@ This plugin uses four tables in the internal database:
 
 ## Development
 
-To set up this plugin locally, first checkout the code. Then create a new virtual environment:
+To set up this plugin locally, first checkout the code. Then run the tests using `uv`:
 ```bash
 cd datasette-public
-python -m venv venv
-source venv/bin/activate
-```
-Now install the dependencies and test dependencies:
-```bash
-pip install -e '.[test]'
+uv run pytest
 ```
 In local development it's useful to run Datasette with everything made private by default:
 ```bash
-datasette data.db \
+uv run datasette data.db \
   --internal internal.db \
   -s allow.id root \
   -s permissions.datasette-public.id root \
   --root \
   --secret fixed \
   --reload
-```
-
-To run the tests:
-```bash
-pytest
 ```

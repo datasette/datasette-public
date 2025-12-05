@@ -22,11 +22,11 @@ CI = "https://github.com/datasette/datasette-public/actions"
 [project.entry-points.datasette]
 public = "datasette_public"
 
-[project.optional-dependencies]
-test = ["pytest", "pytest-asyncio"]
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio"]
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.uv]
+package = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
