@@ -617,3 +617,133 @@ async def test_startup_upgrades_audit_log_schema(tmpdir):
     pragma = await db.execute("pragma table_info(public_audit_log)")
     column_names = [row["name"] for row in pragma]
     assert "query_name" in column_names
+
+
+ExecuteSqlTest = namedtuple(
+    "ExecuteSqlTest",
+    (
+        "description",
+        "allow_sql",
+        "user_id",
+        "expected_status",
+    ),
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ExecuteSqlTest._fields,
+    (
+        # allow_sql=True grants SQL to everyone (anonymous and logged-in)
+        # This is the key bug fix - previously only anonymous users got access
+        ExecuteSqlTest(
+            description="allow_sql=True grants to anonymous",
+            allow_sql=True,
+            user_id=None,
+            expected_status=200,
+        ),
+        ExecuteSqlTest(
+            description="allow_sql=True grants to logged-in user",
+            allow_sql=True,
+            user_id="someuser",
+            expected_status=200,
+        ),
+        # allow_sql=False means plugin doesn't grant SQL
+        ExecuteSqlTest(
+            description="allow_sql=False, anonymous -> denied",
+            allow_sql=False,
+            user_id=None,
+            expected_status=403,
+        ),
+        ExecuteSqlTest(
+            description="allow_sql=False, logged-in -> denied",
+            allow_sql=False,
+            user_id="someuser",
+            expected_status=403,
+        ),
+    ),
+)
+async def test_execute_sql_permission(
+    tmpdir,
+    description,
+    allow_sql,
+    user_id,
+    expected_status,
+):
+    """
+    Test that execute-sql permission works correctly:
+    - allow_sql=True grants SQL to everyone (anonymous and logged-in)
+    - allow_sql=False means the plugin doesn't grant SQL access
+    """
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    conn.close()
+
+    # Deny execute-sql by default so we can test the plugin's grants
+    config = {
+        "databases": {"data": {"allow": True}},
+        "permissions": {"execute-sql": False},
+    }
+
+    ds = Datasette([db_path], internal=internal_path, config=config)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Make database public with specified allow_sql setting
+    internal_conn = sqlite3.connect(internal_path)
+    with internal_conn:
+        internal_conn.execute(
+            "insert into public_databases (database_name, allow_sql) values (?, ?)",
+            ["data", 1 if allow_sql else 0],
+        )
+
+    cookies = {}
+    if user_id:
+        cookies = {"ds_actor": ds.sign({"a": {"id": user_id}}, "actor")}
+
+    response = await ds.client.get("/data/-/query?sql=select+1", cookies=cookies)
+    assert response.status_code == expected_status, f"Failed: {description}"
+
+
+@pytest.mark.asyncio
+async def test_allow_sql_false_does_not_block_other_config_grants(tmpdir):
+    """
+    Verify that allow_sql=False is neutral (doesn't actively deny),
+    so other config rules can still grant SQL access.
+    """
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    conn.close()
+
+    # Config grants execute-sql on this database
+    config = {
+        "databases": {
+            "data": {
+                "allow": True,
+                "permissions": {"execute-sql": True},
+            }
+        },
+    }
+
+    ds = Datasette([db_path], internal=internal_path, config=config)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Make database public with SQL DISABLED via plugin
+    internal_conn = sqlite3.connect(internal_path)
+    with internal_conn:
+        internal_conn.execute(
+            "insert into public_databases (database_name, allow_sql) values (?, ?)",
+            ["data", 0],
+        )
+
+    # User SHOULD still be able to execute SQL (config grant takes effect)
+    cookies = {"ds_actor": ds.sign({"a": {"id": "someone"}}, "actor")}
+    response = await ds.client.get("/data/-/query?sql=select+1", cookies=cookies)
+    assert response.status_code == 200, "Config grant should still allow SQL"

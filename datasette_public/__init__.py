@@ -96,14 +96,11 @@ def permission_resources_sql(datasette, actor, action):
         return PermissionSQL(
             sql="""
                 select database_name as parent,
-                       null as child,
-                       case when allow_sql = 1 then 1 else 0 end as allow,
-                       case
-                           when allow_sql = 1 then 'datasette-public SQL enabled'
-                           else 'datasette-public SQL disabled'
-                       end as reason
+                    null as child,
+                    1 as allow,
+                    'datasette-public SQL enabled' as reason
                 from public_databases
-                where :actor is null
+                where allow_sql = 1
             """,
         )
     return None
