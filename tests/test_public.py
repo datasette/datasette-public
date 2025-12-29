@@ -26,12 +26,17 @@ async def test_plugin_creates_table(ds):
 
 @pytest.mark.asyncio
 async def test_audit_logs(tmpdir):
-    # Set up test environment
+    # Set up test environment - use default_deny mode for this test
     db_path = str(tmpdir / "data.db")
     internal_path = str(tmpdir / "internal.db")
     conn = sqlite3.connect(db_path)
     conn.execute("create table t1 (id int)")
-    ds = Datasette([db_path], internal=internal_path, config={"allow": {"id": "*"}})
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        config={"allow": {"id": "*"}},
+        default_deny=True,
+    )
     ds.root_enabled = True
     await ds.invoke_startup()
     cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
@@ -163,6 +168,7 @@ async def test_where_is_denied(tmpdir):
 @pytest.mark.parametrize("user_is_root", (True, False))
 @pytest.mark.parametrize("is_view", (True, False))
 async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
+    # This test uses default_deny mode to test public_tables behavior
     db_path = str(tmpdir / "data.db")
     internal_path = str(tmpdir / "internal.db")
     conn = sqlite3.connect(db_path)
@@ -172,7 +178,12 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
         conn.execute("create view t1 as select 1")
     else:
         conn.execute("create table t1 (id int)")
-    ds = Datasette([db_path], internal=internal_path, config={"allow": {"id": "*"}})
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        config={"allow": {"id": "*"}},
+        default_deny=True,
+    )
     ds.root_enabled = True
     await ds.invoke_startup()
     # Regular user can see table but not edit privacy
@@ -258,16 +269,30 @@ def _get_audit_logs(db_path):
     ),
 )
 async def test_table_actions(tmpdir, database_is_private, should_show_table_actions):
-    # Tables cannot be toggled if the database they are in is public
+    # This test uses default_deny mode - tables cannot be toggled if the database they are in is public
+    # via some other means (not via the plugin)
     internal_path = str(tmpdir / "internal.db")
     data_path = str(tmpdir / "data.db")
     conn2 = sqlite3.connect(data_path)
     conn2.execute("create table t1 (id int)")
-    config = {"allow": {"id": "root"}} if database_is_private else {}
+    conn2.close()
+
+    if database_is_private:
+        # Database is private - only root can access
+        config = {"allow": {"id": "root"}}
+    else:
+        # Database is public via config (anyone can view)
+        config = {
+            "databases": {
+                "data": {"permissions": {"view-database": True, "view-table": True}}
+            }
+        }
+
     ds = Datasette(
         [data_path],
         internal=internal_path,
         config=config,
+        default_deny=True,
     )
     ds.root_enabled = True
     await ds.invoke_startup()
@@ -313,10 +338,10 @@ DatabaseActionsTest = namedtuple(
             should_show=True,
         ),
         DatabaseActionsTest(
-            description="Database not in public_databases, instance allows all -> don't show",
+            description="Database not in public_databases, with default_deny -> show action (can make public)",
             in_public_databases=False,
             instance_allows_all=True,
-            should_show=False,
+            should_show=True,
         ),
     ),
 )
@@ -328,9 +353,9 @@ async def test_database_actions(
     should_show,
 ):
     """
-    Test database actions behavior:
+    Test database actions behavior in default_deny mode:
     - Show when database IS in public_databases (can make it private)
-    - Don't show when database is visible via other means (like instance-level permissions)
+    - Show when database is NOT in public_databases (can make it public)
     """
     internal_path = str(tmpdir / "internal.db")
     internal_conn = sqlite3.connect(internal_path)
@@ -347,6 +372,7 @@ async def test_database_actions(
         [data_path],
         internal=internal_path,
         config=config,
+        default_deny=True,
     )
     ds.root_enabled = True
     await ds.invoke_startup()
@@ -747,3 +773,202 @@ async def test_allow_sql_false_does_not_block_other_config_grants(tmpdir):
     cookies = {"ds_actor": ds.sign({"a": {"id": "someone"}}, "actor")}
     response = await ds.client.get("/data/-/query?sql=select+1", cookies=cookies)
     assert response.status_code == 200, "Config grant should still allow SQL"
+
+
+# =============================================================================
+# default_deny mode tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_database_privacy_form_shown_without_default_deny(tmpdir):
+    """
+    Without --default-deny, all databases are visible by default.
+    The privacy toggle form SHOULD be shown - can hide databases from anonymous users.
+    """
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    conn.close()
+
+    # default_deny=False is the default
+    ds = Datasette([db_path], internal=internal_path)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Login as root to access the privacy page
+    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+    response = await ds.client.get("/-/public-database/data", cookies=cookies)
+
+    assert response.status_code == 200
+    # Should show the form to hide from anonymous users
+    assert "visible to everyone" in response.text
+    assert 'name="action"' in response.text
+    assert "Hide from anonymous users" in response.text
+
+
+@pytest.mark.asyncio
+async def test_private_table_still_visible_to_logged_in_user(tmpdir):
+    """
+    When a table is in private_tables, it should be hidden from anonymous users
+    but still visible to logged-in users (the deny only applies to anonymous).
+
+    Regression test for: "You did not supply a value for binding parameter :actor"
+    """
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    conn.execute("create table t2 (id int)")
+    conn.close()
+
+    ds = Datasette([db_path], internal=internal_path, default_deny=True)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Make database public with SQL disabled
+    internal_conn = sqlite3.connect(internal_path)
+    with internal_conn:
+        internal_conn.execute(
+            "insert into public_databases (database_name, allow_sql) values (?, ?)",
+            ["data", 0],
+        )
+        # Make t1 private (hidden from anonymous)
+        internal_conn.execute(
+            "insert into private_tables (database_name, table_name) values (?, ?)",
+            ["data", "t1"],
+        )
+
+    # Anonymous user should NOT see t1
+    anon_response = await ds.client.get("/data/t1")
+    assert anon_response.status_code == 403, "Anonymous should not see private table"
+
+    # Anonymous user should see t2
+    anon_response2 = await ds.client.get("/data/t2")
+    assert anon_response2.status_code == 200, "Anonymous should see public table"
+
+    # Logged-in user should STILL see t1
+    cookies = {"ds_actor": ds.sign({"a": {"id": "someuser"}}, "actor")}
+    logged_in_response = await ds.client.get("/data/t1", cookies=cookies)
+    assert (
+        logged_in_response.status_code == 200
+    ), "Logged-in user should still see private table"
+
+
+@pytest.mark.asyncio
+async def test_database_privacy_form_shown_with_default_deny(tmpdir):
+    """
+    With --default-deny, the plugin's grants matter.
+    The privacy toggle form should be shown.
+    """
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    conn.close()
+
+    # Enable default_deny mode
+    ds = Datasette([db_path], internal=internal_path, default_deny=True)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Login as root to access the privacy page
+    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+    response = await ds.client.get("/-/public-database/data", cookies=cookies)
+
+    assert response.status_code == 200
+    # Should show the form, not the "instance is public" message
+    assert "instance is currently public" not in response.text
+    assert 'name="action"' in response.text
+
+
+# =============================================================================
+# Non-default-deny mode tests (hiding from anonymous)
+# =============================================================================
+
+HideFromAnonymousTest = namedtuple(
+    "HideFromAnonymousTest",
+    ("resource_type", "resource_url", "control_url", "label_fragment"),
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    HideFromAnonymousTest._fields,
+    (
+        HideFromAnonymousTest(
+            resource_type="database",
+            resource_url="/data",
+            control_url="/-/public-database/data",
+            label_fragment="Hide this database from anonymous users",
+        ),
+        HideFromAnonymousTest(
+            resource_type="table",
+            resource_url="/data/t1",
+            control_url="/-/public-table/data/t1",
+            label_fragment="Hide this table from anonymous users",
+        ),
+    ),
+)
+async def test_hide_from_anonymous_without_default_deny(
+    tmpdir, resource_type, resource_url, control_url, label_fragment
+):
+    """
+    Without --default-deny, users can hide databases/tables from anonymous users.
+    """
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    conn.close()
+
+    ds = Datasette([db_path], internal=internal_path)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Anonymous can see resource
+    assert (await ds.client.get(resource_url)).status_code == 200
+
+    # Login as root
+    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+
+    # Check action menu shows hide option
+    response = await ds.client.get(resource_url, cookies=cookies)
+    assert response.status_code == 200
+    assert label_fragment in response.text
+
+    # Get CSRF token from control page
+    control_response = await ds.client.get(control_url, cookies=cookies)
+    assert control_response.status_code == 200
+    csrf = control_response.cookies["ds_csrftoken"]
+    cookies["ds_csrftoken"] = csrf
+
+    # Hide from anonymous
+    hide_response = await ds.client.post(
+        control_url,
+        cookies=cookies,
+        data={"action": "make-private", "csrftoken": csrf},
+    )
+    assert hide_response.status_code == 302
+
+    # Anonymous can no longer see resource
+    assert (await ds.client.get(resource_url)).status_code == 403
+
+    # Logged-in user can still see it
+    assert (await ds.client.get(resource_url, cookies=cookies)).status_code == 200
+
+    # Make visible again
+    show_response = await ds.client.post(
+        control_url,
+        cookies=cookies,
+        data={"action": "make-public", "csrftoken": csrf},
+    )
+    assert show_response.status_code == 302
+
+    # Anonymous can see it again
+    assert (await ds.client.get(resource_url)).status_code == 200

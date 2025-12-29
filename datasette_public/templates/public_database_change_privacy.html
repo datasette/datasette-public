@@ -9,10 +9,8 @@
 {% block content %}
 <h1>Edit database privacy: <a href="{{ urls.database(database) }}">{{ database }}</a></h1>
 
-{% if instance_is_public %}
-    <p>This Datasette instance is currently public, so you cannot change the visibility of this database.</p>
-{% else %}
-
+{% if default_deny %}
+    {# In default-deny mode: toggle public/private via public_databases #}
     <form class="core" id="database-privacy-form" action="{{ base_url }}-/public-database/{{ database|quote_plus }}" method="post">
     <p>Database is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
     <p>
@@ -49,6 +47,16 @@
     showHideSqlWrapper();
     </script>
 
+{% else %}
+    {# Without default-deny: toggle hidden/visible via private_databases #}
+    <form class="core" action="{{ base_url }}-/public-database/{{ database|quote_plus }}" method="post">
+    <p>Database is currently <strong>{% if is_hidden %}hidden from anonymous users{% else %}visible to everyone{% endif %}</strong></p>
+    <p>
+        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+        <input type="hidden" name="action" value="{% if is_hidden %}make-public{% else %}make-private{% endif %}">
+        <input type="submit" value="{% if is_hidden %}Make visible to anonymous users{% else %}Hide from anonymous users{% endif %}">
+    </p>
+    </form>
 {% endif %}
 
 {% include "_public_audit_log.html" %}

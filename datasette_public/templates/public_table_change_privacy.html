@@ -9,16 +9,35 @@
 {% block content %}
 <h1>Edit {{ noun }} privacy: <a href="{{ urls.table(database, table) }}">{{ database }}/{{ table }}</a></h1>
 
-{% if database_is_public %}
-    <p>The <strong>{{ database }}</strong> database is currently public, so you cannot change the visibility of this {{ noun }}.</p>
+{% if default_deny %}
+    {# In default-deny mode #}
+    {% if database_has_public_sql %}
+        <p>The <strong>{{ database }}</strong> database is public with SQL queries enabled, so you cannot change the visibility of this {{ noun }}.</p>
+        <p>Users could still access the data using SQL queries even if this {{ noun }} was marked as private.</p>
+        <p>To restrict access to this {{ noun }}, first <a href="{{ base_url }}-/public-database/{{ database|quote_plus }}">disable public SQL queries on the database</a>.</p>
+    {% elif database_is_public and not database_public_sql_disabled %}
+        <p>The <strong>{{ database }}</strong> database is currently public, so you cannot change the visibility of this {{ noun }}.</p>
+    {% else %}
+        <form class="core" action="{{ base_url }}-/public-table/{{ database|quote_plus }}/{{ table|quote_plus }}" method="post">
+        <p>{{ noun|title }} is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
+        {% if database_public_sql_disabled %}
+        <p><em>The database is public but SQL queries are disabled, so you can hide individual {{ noun }}s.</em></p>
+        {% endif %}
+        <p>
+            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+            <input type="hidden" name="action" value="{% if is_private %}make-public{% else %}make-private{% endif %}">
+            <input type="submit" value="{% if is_private %}Make public{% else %}Make private{% endif %}">
+        </p>
+        </form>
+    {% endif %}
 {% else %}
-
+    {# Without default-deny: toggle hidden/visible via private_tables #}
     <form class="core" action="{{ base_url }}-/public-table/{{ database|quote_plus }}/{{ table|quote_plus }}" method="post">
-    <p>{{ noun|title }} is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
+    <p>{{ noun|title }} is currently <strong>{% if is_private %}hidden from anonymous users{% else %}visible to everyone{% endif %}</strong></p>
     <p>
         <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
         <input type="hidden" name="action" value="{% if is_private %}make-public{% else %}make-private{% endif %}">
-        <input type="submit" value="{% if is_private %}Make public{% else %}Make private{% endif %}">
+        <input type="submit" value="{% if is_private %}Make visible to anonymous users{% else %}Hide from anonymous users{% endif %}">
     </p>
     </form>
 {% endif %}
