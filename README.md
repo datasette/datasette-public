@@ -15,25 +15,36 @@ datasette install datasette-public
 ```
 ## Usage
 
-This plugin can only be used with Datasette 1.0a+ and requires Datasette to be run with a persistent internal database:
+This plugin can only be used with Datasette 1.0a22+ and requires Datasette to be run with both `--default-deny` and a persistent internal database:
 
 ```bash
-datasette --internal internal.db data.db
+datasette --internal internal.db --default-deny data.db
 ```
-To grant `datasette-public` permission to the root user run the following:
+
+The `--default-deny` flag is required because `datasette-public` is designed to work in an environment where everything is private by default, and specific databases, tables and queries are then made public by users with the `datasette-public` permission.
+
+To grant the `datasette-public` permission to the root user:
 
 ```bash
-datasette --internal internal.db data.db --root \
+datasette --internal internal.db --default-deny data.db --root \
   -s permissions.datasette-public.id root
 ```
 
-New database, table and query action menu items allow users with the `datasette-public` permission to toggle databases, tables and queries between public and private.
+Users with the `datasette-public` permission will see action menu items on database, table and query pages that allow them to toggle visibility between public and private.
 
-For databases, users can also select if the ability to execute arbitrary SQL should be exposed to the public.
+## How visibility works
 
-If a table is public but the database is private, users will not we able to use the `?_where=` parameter on that table.
+**Databases**: When a database is made public, all tables and views within it are automatically public. Users can also choose whether to allow public execution of arbitrary SQL queries against the database.
 
-The interfaces for managing the visibility of databases, tables and queries include an audit log of changes that have been made to their public status.
+**Tables**: Individual tables can be made public while keeping the rest of their database private. In this case, users will not be able to use the `?_where=` parameter on those tables (to prevent data exfiltration via crafted queries).
+
+**Queries**: Named canned queries can be made public individually, allowing specific queries to be accessible without exposing the underlying tables.
+
+The action menu items only appear when they would be useful:
+- Database visibility toggle appears when the database is private (can be made public) or was made public via this plugin (can be made private)
+- Table and query visibility toggles only appear when the parent database is private
+
+The interfaces for managing visibility include an audit log showing the history of changes.
 
 ## Internals
 
@@ -55,7 +66,7 @@ In local development it's useful to run Datasette with everything made private b
 ```bash
 uv run datasette data.db \
   --internal internal.db \
-  -s allow.id root \
+  --default-deny \
   -s permissions.datasette-public.id root \
   --root \
   --secret fixed \

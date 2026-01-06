@@ -34,6 +34,10 @@ create table if not exists public_audit_log (
 @hookimpl
 def startup(datasette):
     async def inner():
+        if not datasette.default_deny:
+            raise ValueError(
+                "datasette-public requires Datasette to be run with --default-deny"
+            )
         db = datasette.get_internal_database()
         if db.is_memory:
             raise ValueError("datasette-public requires a persistent internal database")
@@ -80,6 +84,12 @@ def permission_resources_sql(datasette, actor, action):
                        1 as allow,
                        'datasette-public table is public' as reason
                 from public_tables
+                union all
+                select database_name as parent,
+                       null as child,
+                       1 as allow,
+                       'datasette-public database is public' as reason
+                from public_databases
             """,
         )
     if action == "view-query":
@@ -149,16 +159,17 @@ def table_actions(datasette, actor, database, table, request):
         ):
             return
 
-        # Check database visibility
+        # Check database visibility to anonymous users
         db_resource = datasette.resource_for_action(
             "view-database", parent=database, child=None
         )
-        database_visible, database_private = await datasette.check_visibility(
-            actor, "view-database", db_resource
+        database_visible_to_anon, _ = await datasette.check_visibility(
+            None, "view-database", db_resource
         )
 
-        # Only show action in private contexts
-        if database_visible and not database_private:
+        # Only show action if database is not publicly visible via config
+        # (if database is already public, no point toggling individual tables)
+        if database_visible_to_anon:
             return
         noun = "table"
         if table in await datasette.get_database(database).view_names():
@@ -198,19 +209,19 @@ def database_actions(datasette, actor, database, request):
 
         is_public, _ = await database_privacy_settings(datasette, database)
 
-        # Check if database is visible
+        # Check if database is visible to anonymous users (via config, not via this plugin)
         db_resource = datasette.resource_for_action(
             "view-database", parent=database, child=None
         )
-        database_visible, _ = await datasette.check_visibility(
-            actor, "view-database", db_resource
+        database_visible_to_anon, _ = await datasette.check_visibility(
+            None, "view-database", db_resource
         )
 
         # Only show action if:
         # - Database is in public_databases (so it can be made private), OR
-        # - Database is NOT visible (so it can be made public)
-        # Don't show if visible but not explicitly public (visible via other permission)
-        if not is_public and database_visible:
+        # - Database is NOT visible to anonymous users (so it can be made public)
+        # Don't show if already visible to anonymous via config (toggle wouldn't do anything)
+        if not is_public and database_visible_to_anon:
             return
         return [
             {
@@ -249,16 +260,17 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
         ):
             return
 
-        # Check database visibility
+        # Check database visibility to anonymous users
         db_resource = datasette.resource_for_action(
             "view-database", parent=database, child=None
         )
-        database_visible, database_private = await datasette.check_visibility(
-            actor, "view-database", db_resource
+        database_visible_to_anon, _ = await datasette.check_visibility(
+            None, "view-database", db_resource
         )
 
-        # Only show action if visible AND private
-        if (not database_visible) or (not database_private):
+        # Only show action if database is not publicly visible via config
+        # (if database is already public, no point toggling individual queries)
+        if database_visible_to_anon:
             return
         is_private = not await query_is_public(datasette, database, query_name)
         return [
@@ -399,15 +411,18 @@ async def change_table_privacy(request, datasette):
 
     is_private = not await table_is_public(datasette, database_name, table)
 
-    # Check database visibility
+    # Check if database is public via the plugin
+    database_is_public_via_plugin, _ = await database_privacy_settings(
+        datasette, database_name
+    )
+
+    # Also check if database is visible to anonymous users via config
     db_resource = datasette.resource_for_action(
         "view-database", parent=database_name, child=None
     )
-    database_visible, database_private = await datasette.check_visibility(
-        request.actor, "view-database", db_resource
+    database_visible_to_anon, _ = await datasette.check_visibility(
+        None, "view-database", db_resource
     )
-
-    database_is_public = database_visible and not database_private
 
     return Response.html(
         await datasette.render_template(
@@ -417,7 +432,9 @@ async def change_table_privacy(request, datasette):
                 "table": table,
                 "is_private": is_private,
                 "noun": noun.lower(),
-                "database_is_public": database_is_public,
+                "database_is_public_via_plugin": database_is_public_via_plugin,
+                "database_is_public_via_config": database_visible_to_anon
+                and not database_is_public_via_plugin,
                 "audit_log": audit_log,
                 "next_page": next_page,
             },
