@@ -1,4 +1,5 @@
 from datasette.app import Datasette
+from datasette.utils import StartupError
 import pytest
 import pytest_asyncio
 import sqlite3
@@ -89,7 +90,7 @@ async def test_error_if_no_internal_database(tmpdir):
     db_path = str(tmpdir / "data.db")
     ds = Datasette(files=[db_path], default_deny=True)
     ds.root_enabled = True
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StartupError) as exc_info:
         await ds.invoke_startup()
     assert "persistent internal database" in str(exc_info.value)
 
@@ -100,7 +101,7 @@ async def test_error_if_not_default_deny(tmpdir):
     internal_path = str(tmpdir / "internal.db")
     ds = Datasette([db_path], internal=internal_path, default_deny=False)
     ds.root_enabled = True
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StartupError) as exc_info:
         await ds.invoke_startup()
     assert "--default-deny" in str(exc_info.value)
 

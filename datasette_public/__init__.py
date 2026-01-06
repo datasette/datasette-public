@@ -1,6 +1,7 @@
 from datasette import hookimpl, Forbidden, Response, NotFound
 from datasette.permissions import Action, PermissionSQL
 from datasette.resources import DatabaseResource, QueryResource, TableResource
+from datasette.utils import StartupError
 from urllib.parse import quote_plus, unquote_plus
 from typing import Tuple
 
@@ -35,12 +36,14 @@ create table if not exists public_audit_log (
 def startup(datasette):
     async def inner():
         if not datasette.default_deny:
-            raise ValueError(
+            raise StartupError(
                 "datasette-public requires Datasette to be run with --default-deny"
             )
         db = datasette.get_internal_database()
         if db.is_memory:
-            raise ValueError("datasette-public requires a persistent internal database")
+            raise StartupError(
+                "datasette-public requires a persistent internal database"
+            )
         await db.execute_write_script(CREATE_TABLES_SQL)
         # Ensure query_name column exists
         try:
