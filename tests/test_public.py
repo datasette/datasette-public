@@ -733,7 +733,7 @@ async def test_startup_upgrades_audit_log_schema(tmpdir):
     conn.close()
 
     # Start Datasette pointing at that internal DB
-    ds = Datasette([], internal=internal_path, default_deny=True)
+    ds = Datasette(internal=internal_path, default_deny=True)
     ds.root_enabled = True
     await ds.invoke_startup()
 
