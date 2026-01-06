@@ -207,6 +207,48 @@ async def test_tables_in_public_database_are_accessible(tmpdir):
 
 
 @pytest.mark.asyncio
+async def test_queries_in_public_database_are_not_automatically_public(tmpdir):
+    """When a database is made public, canned queries should NOT be automatically public"""
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    internal_conn = sqlite3.connect(internal_path)
+
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        default_deny=True,
+        config={
+            "databases": {
+                "data": {"queries": {"my_query": {"sql": "select * from t1"}}}
+            }
+        },
+    )
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Make database public (but not individual queries)
+    with internal_conn:
+        internal_conn.execute(
+            "insert into public_databases (database_name) values (?)",
+            ["data"],
+        )
+
+    # Anonymous user should be able to see the database and tables
+    assert (await ds.client.get("/data")).status_code == 200
+    assert (await ds.client.get("/data/t1")).status_code == 200
+    # But NOT the canned query - it requires explicit public status
+    assert (await ds.client.get("/data/my_query")).status_code == 403
+
+    # Root user should still see the query action menu to make query public
+    cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
+    response = await ds.client.get("/data/my_query", cookies=cookies)
+    assert response.status_code == 200
+    assert 'href="/-/public-query/data/my_query"' in response.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("user_is_root", (True, False))
 @pytest.mark.parametrize("is_view", (True, False))
 async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):

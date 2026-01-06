@@ -27,15 +27,16 @@ Users with the `datasette-public` permission will see action menu items on datab
 
 ## How visibility works
 
-**Databases**: When a database is made public, all tables and views within it are automatically public. Users can also choose whether to allow public execution of arbitrary SQL queries against the database.
+**Databases**: When a database is made public, all tables and views within it are automatically public. Users can also choose whether to allow public execution of arbitrary SQL queries against the database. Note that canned queries are NOT automatically public when a database is made public - they must be made public individually.
 
 **Tables**: Individual tables can be made public while keeping the rest of their database private. In this case, users will not be able to use the `?_where=` parameter on those tables (to prevent data exfiltration via crafted queries).
 
-**Queries**: Named canned queries can be made public individually, allowing specific queries to be accessible without exposing the underlying tables.
+**Queries**: Named canned queries must always be made public individually, even if their parent database is public. This allows fine-grained control over which queries are exposed.
 
 The action menu items only appear when they would be useful:
 - Database visibility toggle appears when the database is private (can be made public) or was made public via this plugin (can be made private)
-- Table and query visibility toggles only appear when the parent database is private
+- Table visibility toggle only appears when the parent database is private
+- Query visibility toggle appears when the parent database is private OR was made public via this plugin (since queries require explicit public status)
 
 The interfaces for managing visibility include an audit log showing the history of changes.
 
