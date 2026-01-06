@@ -9,7 +9,7 @@ from collections import namedtuple
 async def ds(tmpdir):
     db_path = str(tmpdir / "data.db")
     internal_path = str(tmpdir / "internal.db")
-    ds = Datasette([db_path], internal=internal_path)
+    ds = Datasette([db_path], internal=internal_path, default_deny=True)
     ds.root_enabled = True
     await ds.invoke_startup()
     return ds
@@ -31,7 +31,12 @@ async def test_audit_logs(tmpdir):
     internal_path = str(tmpdir / "internal.db")
     conn = sqlite3.connect(db_path)
     conn.execute("create table t1 (id int)")
-    ds = Datasette([db_path], internal=internal_path, config={"allow": {"id": "*"}})
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        config={"allow": {"id": "*"}},
+        default_deny=True,
+    )
     ds.root_enabled = True
     await ds.invoke_startup()
     cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
@@ -82,10 +87,22 @@ async def test_audit_logs(tmpdir):
 @pytest.mark.asyncio
 async def test_error_if_no_internal_database(tmpdir):
     db_path = str(tmpdir / "data.db")
-    ds = Datasette(files=[db_path])
+    ds = Datasette(files=[db_path], default_deny=True)
     ds.root_enabled = True
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as exc_info:
         await ds.invoke_startup()
+    assert "persistent internal database" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_error_if_not_default_deny(tmpdir):
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+    ds = Datasette([db_path], internal=internal_path, default_deny=False)
+    ds.root_enabled = True
+    with pytest.raises(ValueError) as exc_info:
+        await ds.invoke_startup()
+    assert "--default-deny" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -108,10 +125,10 @@ async def test_public_table(
     internal_conn = sqlite3.connect(internal_path)
 
     config = {}
-    if not public_instance:
-        config["allow"] = False
+    if public_instance:
+        config["allow"] = True
 
-    ds = Datasette([db_path], internal=internal_path, config=config)
+    ds = Datasette([db_path], internal=internal_path, config=config, default_deny=True)
     ds.root_enabled = True
     await ds.invoke_startup()
 
@@ -140,7 +157,9 @@ async def test_where_is_denied(tmpdir):
     conn = sqlite3.connect(db_path)
     internal_conn = sqlite3.connect(internal_path)
 
-    ds = Datasette([db_path], internal=internal_path, config={"allow": False})
+    ds = Datasette(
+        [db_path], internal=internal_path, config={"allow": False}, default_deny=True
+    )
     ds.root_enabled = True
     await ds.invoke_startup()
 
@@ -152,11 +171,39 @@ async def test_where_is_denied(tmpdir):
         )
     # This should be allowed
     assert (await ds.client.get("/data/t1")).status_code == 200
-    # This should not
+    # This should not be allowed
     assert (await ds.client.get("/data")).status_code == 403
     # Neither should this
     response = await ds.client.get("/data/t1?_where=1==1")
     assert ">1 extra where clause<" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_tables_in_public_database_are_accessible(tmpdir):
+    """When a database is made public, all tables within it should be accessible"""
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("create table t1 (id int)")
+    conn.execute("create table t2 (name text)")
+    internal_conn = sqlite3.connect(internal_path)
+
+    ds = Datasette([db_path], internal=internal_path, default_deny=True)
+    ds.root_enabled = True
+    await ds.invoke_startup()
+
+    # Make database public (but not individual tables)
+    with internal_conn:
+        internal_conn.execute(
+            "insert into public_databases (database_name) values (?)",
+            ["data"],
+        )
+
+    # Anonymous user should be able to see the database
+    assert (await ds.client.get("/data")).status_code == 200
+    # And all tables within it
+    assert (await ds.client.get("/data/t1")).status_code == 200
+    assert (await ds.client.get("/data/t2")).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -172,7 +219,12 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
         conn.execute("create view t1 as select 1")
     else:
         conn.execute("create table t1 (id int)")
-    ds = Datasette([db_path], internal=internal_path, config={"allow": {"id": "*"}})
+    ds = Datasette(
+        [db_path],
+        internal=internal_path,
+        config={"allow": {"id": "*"}},
+        default_deny=True,
+    )
     ds.root_enabled = True
     await ds.invoke_startup()
     # Regular user can see table but not edit privacy
@@ -260,17 +312,27 @@ def _get_audit_logs(db_path):
 async def test_table_actions(tmpdir, database_is_private, should_show_table_actions):
     # Tables cannot be toggled if the database they are in is public
     internal_path = str(tmpdir / "internal.db")
+    internal_conn = sqlite3.connect(internal_path)
     data_path = str(tmpdir / "data.db")
     conn2 = sqlite3.connect(data_path)
     conn2.execute("create table t1 (id int)")
-    config = {"allow": {"id": "root"}} if database_is_private else {}
+    # Always restrict access to root user only via config
+    config = {"allow": {"id": "root"}}
     ds = Datasette(
         [data_path],
         internal=internal_path,
         config=config,
+        default_deny=True,
     )
     ds.root_enabled = True
     await ds.invoke_startup()
+    # If database is NOT private, make it public via the plugin's public_databases table
+    if not database_is_private:
+        with internal_conn:
+            internal_conn.execute(
+                "insert into public_databases (database_name) values (?)",
+                ["data"],
+            )
     cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
     response = await ds.client.get("/data/t1", cookies=cookies)
     fragment = 'a href="/-/public-table/data/t1">Make table public'
@@ -289,6 +351,8 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
         assert fragment2 not in response2.text
     else:
         assert fragment2 in response2.text
+        # Should explain that tables are automatically public when database is public
+        assert "all tables within it are automatically public" in response2.text
 
 
 DatabaseActionsTest = namedtuple(
@@ -296,7 +360,7 @@ DatabaseActionsTest = namedtuple(
     (
         "description",
         "in_public_databases",
-        "instance_allows_all",
+        "visible_to_anon_via_config",
         "should_show",
     ),
 )
@@ -309,13 +373,19 @@ DatabaseActionsTest = namedtuple(
         DatabaseActionsTest(
             description="Database in public_databases -> show action (can make private)",
             in_public_databases=True,
-            instance_allows_all=True,
+            visible_to_anon_via_config=False,
             should_show=True,
         ),
         DatabaseActionsTest(
-            description="Database not in public_databases, instance allows all -> don't show",
+            description="Database not in public_databases, not visible to anon -> show action (can make public)",
             in_public_databases=False,
-            instance_allows_all=True,
+            visible_to_anon_via_config=False,
+            should_show=True,
+        ),
+        DatabaseActionsTest(
+            description="Database visible to anon via config -> don't show (toggle wouldn't do anything)",
+            in_public_databases=False,
+            visible_to_anon_via_config=True,
             should_show=False,
         ),
     ),
@@ -324,13 +394,14 @@ async def test_database_actions(
     tmpdir,
     description,
     in_public_databases,
-    instance_allows_all,
+    visible_to_anon_via_config,
     should_show,
 ):
     """
     Test database actions behavior:
     - Show when database IS in public_databases (can make it private)
-    - Don't show when database is visible via other means (like instance-level permissions)
+    - Show when database is NOT in public_databases and NOT visible to anon (can make it public)
+    - Don't show when database is visible to anonymous via config (toggle wouldn't help)
     """
     internal_path = str(tmpdir / "internal.db")
     internal_conn = sqlite3.connect(internal_path)
@@ -339,14 +410,18 @@ async def test_database_actions(
     conn2.execute("create table t1 (id int)")
 
     config = {}
-    if instance_allows_all:
-        # Make instance/databases visible via instance-level permission
+    if visible_to_anon_via_config:
+        # Make database visible to everyone including anonymous
+        config["allow"] = True
+    else:
+        # Only allow root user
         config["allow"] = {"id": "root"}
 
     ds = Datasette(
         [data_path],
         internal=internal_path,
         config=config,
+        default_deny=True,
     )
     ds.root_enabled = True
     await ds.invoke_startup()
@@ -382,7 +457,9 @@ async def test_query_permission_check(tmpdir):
     from datasette_public import query_is_public
 
     internal_path = str(tmpdir / "internal.db")
-    ds = Datasette([], internal=internal_path, config={"allow": {"id": "*"}})
+    ds = Datasette(
+        [], internal=internal_path, config={"allow": {"id": "*"}}, default_deny=True
+    )
     ds.root_enabled = True
     await ds.invoke_startup()
 
@@ -422,11 +499,13 @@ async def test_query_actions_ui(tmpdir, user_is_root, path, should_have_option):
             "allow": {"id": "*"},
             "databases": {
                 "data": {
-                    "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
+                    "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}},
+                    "permissions": {"execute-sql": True},
                 }
             },
             "permissions": {"datasette-public": {"id": "root"}},
         },
+        default_deny=True,
     )
     ds.root_enabled = True
     await ds.invoke_startup()
@@ -467,6 +546,7 @@ async def test_query_privacy_toggle(tmpdir):
             },
             "allow": {"id": "*"},
         },
+        default_deny=True,
     )
     ds.root_enabled = True
     await ds.invoke_startup()
@@ -527,24 +607,26 @@ async def test_query_privacy_with_database_privacy(tmpdir):
     conn.execute("CREATE TABLE dummy (id INTEGER)")
     conn.close()
 
-    # Make database public
+    # Make database public via config (not via the plugin)
     ds = Datasette(
         [db_path],
         internal=internal_path,
         config={
             "databases": {
                 "data": {
-                    "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}}
+                    "allow": True,
+                    "queries": {"test_query": {"sql": "SELECT 'hello' as greeting"}},
                 }
             }
         },
+        default_deny=True,
     )
     ds.root_enabled = True
     await ds.invoke_startup()
 
     cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
 
-    # Query actions should not appear when database is public
+    # Query actions should not appear when database is public via config
     response = await ds.client.get("/data/test_query", cookies=cookies)
     menu_fragment = 'a href="/-/public-query/data/test_query">Make query'
     assert menu_fragment not in response.text
@@ -608,7 +690,7 @@ async def test_startup_upgrades_audit_log_schema(tmpdir):
     conn.close()
 
     # Start Datasette pointing at that internal DB
-    ds = Datasette([], internal=internal_path)
+    ds = Datasette([], internal=internal_path, default_deny=True)
     ds.root_enabled = True
     await ds.invoke_startup()
 
@@ -688,7 +770,7 @@ async def test_execute_sql_permission(
         "permissions": {"execute-sql": False},
     }
 
-    ds = Datasette([db_path], internal=internal_path, config=config)
+    ds = Datasette([db_path], internal=internal_path, config=config, default_deny=True)
     ds.root_enabled = True
     await ds.invoke_startup()
 
@@ -731,7 +813,7 @@ async def test_allow_sql_false_does_not_block_other_config_grants(tmpdir):
         },
     }
 
-    ds = Datasette([db_path], internal=internal_path, config=config)
+    ds = Datasette([db_path], internal=internal_path, config=config, default_deny=True)
     ds.root_enabled = True
     await ds.invoke_startup()
 
