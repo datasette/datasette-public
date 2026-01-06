@@ -260,7 +260,12 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
         ):
             return
 
-        # Check database visibility to anonymous users
+        # Check if database is public via the plugin (queries still need explicit toggle)
+        database_is_public_via_plugin, _ = await database_privacy_settings(
+            datasette, database
+        )
+
+        # Check if database is visible to anonymous users via config (not plugin)
         db_resource = datasette.resource_for_action(
             "view-database", parent=database, child=None
         )
@@ -268,9 +273,9 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
             None, "view-database", db_resource
         )
 
-        # Only show action if database is not publicly visible via config
-        # (if database is already public, no point toggling individual queries)
-        if database_visible_to_anon:
+        # Only hide action if database is publicly visible via config (not via plugin)
+        # When database is public via plugin, queries still need explicit public toggle
+        if database_visible_to_anon and not database_is_public_via_plugin:
             return
         is_private = not await query_is_public(datasette, database, query_name)
         return [
