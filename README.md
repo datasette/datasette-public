@@ -55,12 +55,11 @@ To set up this plugin locally, first checkout the code. Then run the tests using
 cd datasette-public
 uv run pytest
 ```
-In local development it's useful to run Datasette with everything made private by default:
+In local development it's useful to run Datasette like this:
 ```bash
 uv run datasette data.db \
   --internal internal.db \
   --default-deny \
-  -s permissions.datasette-public.id root \
   --root \
   --secret fixed \
   --reload
