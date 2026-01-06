@@ -23,13 +23,6 @@ datasette --internal internal.db --default-deny data.db
 
 The `--default-deny` flag is required because `datasette-public` is designed to work in an environment where everything is private by default, and specific databases, tables and queries are then made public by users with the `datasette-public` permission.
 
-To grant the `datasette-public` permission to the root user:
-
-```bash
-datasette --internal internal.db --default-deny data.db --root \
-  -s permissions.datasette-public.id root
-```
-
 Users with the `datasette-public` permission will see action menu items on database, table and query pages that allow them to toggle visibility between public and private.
 
 ## How visibility works
