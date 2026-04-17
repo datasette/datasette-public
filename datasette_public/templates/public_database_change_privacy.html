@@ -16,7 +16,6 @@
     <form class="core" id="database-privacy-form" action="{{ base_url }}-/public-database/{{ database|quote_plus }}" method="post">
     <p>Database is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
     <p>
-        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
         <p> <!-- radio buttons for make-public / make-private action-->
           <input type="radio" name="action" id="make-public" value="make-public" {% if not is_private %}checked{% endif %}>
           <label for="make-public">Database is public</label> - anyone can access it

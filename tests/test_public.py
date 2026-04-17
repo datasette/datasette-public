@@ -9,6 +9,7 @@ from collections import namedtuple
 @pytest_asyncio.fixture
 async def ds(tmpdir):
     db_path = str(tmpdir / "data.db")
+    sqlite3.connect(db_path).close()
     internal_path = str(tmpdir / "internal.db")
     ds = Datasette([db_path], internal=internal_path, default_deny=True)
     ds.root_enabled = True
@@ -40,21 +41,13 @@ async def test_audit_logs(tmpdir):
     )
     ds.root_enabled = True
     await ds.invoke_startup()
-    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
-    csrf = None
+    actor = {"id": "root"}
 
-    # Helper to get CSRF and make requests
     async def post_action(path, action, allow_sql=None):
-        nonlocal csrf
-
-        response = await ds.client.get(path, cookies=cookies)
-        if "ds_csrftoken" in response.cookies:
-            csrf = response.cookies["ds_csrftoken"]
-            cookies["ds_csrftoken"] = csrf
-        data = {"action": action, "csrftoken": csrf}
+        data = {"action": action}
         if allow_sql is not None:
             data["allow_sql"] = allow_sql
-        return await ds.client.post(path, cookies=cookies, data=data)
+        return await ds.client.post(path, actor=actor, data=data)
 
     # Test table privacy changes
     await post_action("/-/public-table/data/t1", "make-public")
@@ -88,6 +81,7 @@ async def test_audit_logs(tmpdir):
 @pytest.mark.asyncio
 async def test_error_if_no_internal_database(tmpdir):
     db_path = str(tmpdir / "data.db")
+    sqlite3.connect(db_path).close()
     ds = Datasette(files=[db_path], default_deny=True)
     ds.root_enabled = True
     with pytest.raises(StartupError) as exc_info:
@@ -98,6 +92,7 @@ async def test_error_if_no_internal_database(tmpdir):
 @pytest.mark.asyncio
 async def test_error_if_not_default_deny(tmpdir):
     db_path = str(tmpdir / "data.db")
+    sqlite3.connect(db_path).close()
     internal_path = str(tmpdir / "internal.db")
     ds = Datasette([db_path], internal=internal_path, default_deny=False)
     ds.root_enabled = True
@@ -243,8 +238,7 @@ async def test_queries_in_public_database_are_not_automatically_public(tmpdir):
     assert (await ds.client.get("/data/my_query")).status_code == 403
 
     # Root user should still see the query action menu to make query public
-    cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
-    response = await ds.client.get("/data/my_query", cookies=cookies)
+    response = await ds.client.get("/data/my_query", actor={"id": "root"})
     assert response.status_code == 200
     assert 'href="/-/public-query/data/my_query"' in response.text
 
@@ -271,18 +265,16 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
     ds.root_enabled = True
     await ds.invoke_startup()
     # Regular user can see table but not edit privacy
-    cookies = {
-        "ds_actor": ds.sign({"a": {"id": "root" if user_is_root else "user"}}, "actor")
-    }
+    actor = {"id": "root" if user_is_root else "user"}
     menu_fragment = '<li><a href="/-/public-table/data/t1">Make {} public'.format(noun)
-    response = await ds.client.get("/data/t1", cookies=cookies)
+    response = await ds.client.get("/data/t1", actor=actor)
     if user_is_root:
         assert menu_fragment in response.text
     else:
         assert menu_fragment not in response.text
 
     # Check permissions on /-/public-table/data/t1 page
-    response2 = await ds.client.get("/-/public-table/data/t1", cookies=cookies)
+    response2 = await ds.client.get("/-/public-table/data/t1", actor=actor)
     if user_is_root:
         assert response2.status_code == 200
     else:
@@ -296,12 +288,10 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
     assert '<input type="hidden" name="action" value="make-public">' in html
     assert '<input type="submit" value="Make public">' in html
     assert _get_public_tables(internal_path) == []
-    csrftoken = response2.cookies["ds_csrftoken"]
-    cookies["ds_csrftoken"] = csrftoken
     response3 = await ds.client.post(
         "/-/public-table/data/t1",
-        cookies=cookies,
-        data={"action": "make-public", "csrftoken": csrftoken},
+        actor=actor,
+        data={"action": "make-public"},
     )
     assert response3.status_code == 302
     assert response3.headers["location"] == "/data/t1"
@@ -311,15 +301,15 @@ async def test_ui_for_editing_table_privacy(tmpdir, user_is_root, is_view):
     assert logs[0] == ("root", "make_public", "data", "t1")
 
     # And toggle it private again
-    response4 = await ds.client.get("/-/public-table/data/t1", cookies=cookies)
+    response4 = await ds.client.get("/-/public-table/data/t1", actor=actor)
     html2 = response4.text
     assert "{} is currently <strong>public</strong>".format(noun.title()) in html2
     assert '<input type="hidden" name="action" value="make-private">' in html2
     assert '<input type="submit" value="Make private">' in html2
     response5 = await ds.client.post(
         "/-/public-table/data/t1",
-        cookies=cookies,
-        data={"action": "make-private", "csrftoken": csrftoken},
+        actor=actor,
+        data={"action": "make-private"},
     )
     assert response5.status_code == 302
     assert response5.headers["location"] == "/data/t1"
@@ -376,8 +366,8 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
                 "insert into public_databases (database_name) values (?)",
                 ["data"],
             )
-    cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
-    response = await ds.client.get("/data/t1", cookies=cookies)
+    actor = {"id": "root"}
+    response = await ds.client.get("/data/t1", actor=actor)
     fragment = 'a href="/-/public-table/data/t1">Make table public'
     if should_show_table_actions:
         assert fragment in response.text
@@ -387,7 +377,7 @@ async def test_table_actions(tmpdir, database_is_private, should_show_table_acti
     # And fetch the control page
     response2 = await ds.client.get(
         "/-/public-table/data/t1",
-        cookies=cookies,
+        actor=actor,
     )
     fragment2 = "cannot change the visibility"
     if should_show_table_actions:
@@ -477,8 +467,7 @@ async def test_database_actions(
                 ["data"],
             )
 
-    cookies = {"ds_actor": ds.client.actor_cookie({"id": "root"})}
-    response = await ds.client.get("/data", cookies=cookies)
+    response = await ds.client.get("/data", actor={"id": "root"})
     fragment = 'a href="/-/public-database/data">Change database visibility'
 
     if should_show:
@@ -553,12 +542,10 @@ async def test_query_actions_ui(tmpdir, user_is_root, path, should_have_option):
     ds.root_enabled = True
     await ds.invoke_startup()
 
-    cookies = {
-        "ds_actor": ds.sign({"a": {"id": "root" if user_is_root else "user"}}, "actor")
-    }
+    actor = {"id": "root" if user_is_root else "user"}
 
     # Test query page shows action menu for root user only
-    response = await ds.client.get(path, cookies=cookies)
+    response = await ds.client.get(path, actor=actor)
     assert response.status_code == 200
     menu_fragment = 'a href="/-/public-query/data/test_query">Make query public'
 
@@ -594,21 +581,18 @@ async def test_query_privacy_toggle(tmpdir):
     ds.root_enabled = True
     await ds.invoke_startup()
 
-    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+    actor = {"id": "root"}
 
     # Get privacy control page
-    response = await ds.client.get("/-/public-query/data/test_query", cookies=cookies)
+    response = await ds.client.get("/-/public-query/data/test_query", actor=actor)
     assert response.status_code == 200
     assert "Query is currently <strong>private</strong>" in response.text
 
     # Make query public
-    csrftoken = response.cookies["ds_csrftoken"]
-    cookies["ds_csrftoken"] = csrftoken
-
     response = await ds.client.post(
         "/-/public-query/data/test_query",
-        cookies=cookies,
-        data={"action": "make-public", "csrftoken": csrftoken},
+        actor=actor,
+        data={"action": "make-public"},
     )
     assert response.status_code == 302
     assert response.headers["location"] == "/data/test_query"
@@ -622,13 +606,13 @@ async def test_query_privacy_toggle(tmpdir):
     assert logs[0] == ("root", "make_public", "data", "test_query")
 
     # Toggle back to private
-    response = await ds.client.get("/-/public-query/data/test_query", cookies=cookies)
+    response = await ds.client.get("/-/public-query/data/test_query", actor=actor)
     assert "Query is currently <strong>public</strong>" in response.text
 
     response = await ds.client.post(
         "/-/public-query/data/test_query",
-        cookies=cookies,
-        data={"action": "make-private", "csrftoken": csrftoken},
+        actor=actor,
+        data={"action": "make-private"},
     )
     assert response.status_code == 302
 
@@ -667,15 +651,15 @@ async def test_query_privacy_with_database_privacy(tmpdir):
     ds.root_enabled = True
     await ds.invoke_startup()
 
-    cookies = {"ds_actor": ds.sign({"a": {"id": "root"}}, "actor")}
+    actor = {"id": "root"}
 
     # Query actions should not appear when database is public via config
-    response = await ds.client.get("/data/test_query", cookies=cookies)
+    response = await ds.client.get("/data/test_query", actor=actor)
     menu_fragment = 'a href="/-/public-query/data/test_query">Make query'
     assert menu_fragment not in response.text
 
     # Privacy control page should show warning
-    response = await ds.client.get("/-/public-query/data/test_query", cookies=cookies)
+    response = await ds.client.get("/-/public-query/data/test_query", actor=actor)
     assert "cannot change the visibility of this query" in response.text
 
 
@@ -703,8 +687,7 @@ async def test_startup_upgrades_audit_log_schema(tmpdir):
 
     # Create a pre-existing internal DB without the query_name column
     conn = sqlite3.connect(internal_path)
-    conn.executescript(
-        """
+    conn.executescript("""
         create table public_tables (
             database_name text,
             table_name text,
@@ -728,8 +711,7 @@ async def test_startup_upgrades_audit_log_schema(tmpdir):
             database_name text,
             table_name text
         );
-        """
-    )
+        """)
     conn.close()
 
     # Start Datasette pointing at that internal DB
@@ -825,11 +807,11 @@ async def test_execute_sql_permission(
             ["data", 1 if allow_sql else 0],
         )
 
-    cookies = {}
+    kwargs = {}
     if user_id:
-        cookies = {"ds_actor": ds.sign({"a": {"id": user_id}}, "actor")}
+        kwargs["actor"] = {"id": user_id}
 
-    response = await ds.client.get("/data/-/query?sql=select+1", cookies=cookies)
+    response = await ds.client.get("/data/-/query?sql=select+1", **kwargs)
     assert response.status_code == expected_status, f"Failed: {description}"
 
 
@@ -869,6 +851,7 @@ async def test_allow_sql_false_does_not_block_other_config_grants(tmpdir):
         )
 
     # User SHOULD still be able to execute SQL (config grant takes effect)
-    cookies = {"ds_actor": ds.sign({"a": {"id": "someone"}}, "actor")}
-    response = await ds.client.get("/data/-/query?sql=select+1", cookies=cookies)
+    response = await ds.client.get(
+        "/data/-/query?sql=select+1", actor={"id": "someone"}
+    )
     assert response.status_code == 200, "Config grant should still allow SQL"

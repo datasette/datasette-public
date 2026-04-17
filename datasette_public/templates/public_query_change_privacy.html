@@ -16,7 +16,6 @@
     <form class="core" action="{{ base_url }}-/public-query/{{ database|quote_plus }}/{{ query|quote_plus }}" method="post">
     <p>Query is currently <strong>{% if is_private %}private{% else %}public{% endif %}</strong></p>
     <p>
-        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
         <input type="hidden" name="action" value="{% if is_private %}make-public{% else %}make-private{% endif %}">
         <input type="submit" value="{% if is_private %}Make public{% else %}Make private{% endif %}">
     </p>

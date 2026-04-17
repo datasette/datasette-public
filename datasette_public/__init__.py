@@ -40,7 +40,7 @@ def startup(datasette):
                 "datasette-public requires Datasette to be run with --default-deny"
             )
         db = datasette.get_internal_database()
-        if db.is_memory:
+        if db.is_memory or db.is_temp_disk:
             raise StartupError(
                 "datasette-public requires a persistent internal database"
             )
