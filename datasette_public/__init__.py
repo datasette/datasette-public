@@ -45,13 +45,15 @@ def startup(datasette):
                 "datasette-public requires a persistent internal database"
             )
         await db.execute_write_script(CREATE_TABLES_SQL)
-        # Ensure query_name column exists
-        try:
+        # Ensure query_name column exists (for databases created before it was added)
+        columns = {
+            row["name"]
+            for row in await db.execute("pragma table_info(public_audit_log)")
+        }
+        if "query_name" not in columns:
             await db.execute_write(
                 "alter table public_audit_log add column query_name text"
             )
-        except Exception:
-            pass
 
     return inner
 
